@@ -1,0 +1,7 @@
+{
+  "name": "db",
+  "compatibility_date": "2026-02-10",
+  "assets": {
+    "directory": ".vercel/output/static"
+  }
+}
