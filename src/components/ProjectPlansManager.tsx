@@ -22,6 +22,7 @@ export default function ProjectPlansManager({ projectId }: ProjectPlansManagerPr
   const [uniqueDirections, setUniqueDirections] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [uploadingModel, setUploadingModel] = useState(false);
+  const [renameName, setRenameName] = useState<string>('');
   
   // Model Upload State
   const [editingDirection, setEditingDirection] = useState<string | null>(null); // The direction currently being edited
@@ -152,6 +153,7 @@ export default function ProjectPlansManager({ projectId }: ProjectPlansManagerPr
   const openModelEditor = (direction: string) => {
     setEditingDirection(direction);
     setNewModelFiles([]);
+    setRenameName(direction);
     // Note: We don't load existing files into newModelFiles because they are different types (File vs UnitModelFile)
     // We will handle the "total files" validation by checking models state + newModelFiles
   };
@@ -232,62 +234,84 @@ export default function ProjectPlansManager({ projectId }: ProjectPlansManagerPr
 
   const handleSaveModel = async () => {
     if (!editingDirection) return;
-    if (newModelFiles.length === 0) {
-      setEditingDirection(null); // Just close if nothing to save
-      return;
-    }
 
     setUploadingModel(true);
     try {
       const uploadedFiles: UnitModelFile[] = [];
+      const currentModel = models.find(m => m.name === editingDirection) || null;
+      const targetName = (renameName || '').trim() || editingDirection;
 
-      // Upload new files
-      for (const fileObj of newModelFiles) {
-        const fileExt = fileObj.file.name.split('.').pop();
-        const fileName = `models/${projectId}/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-        
-        const { error: uploadError } = await supabase.storage
-          .from('project-files')
-          .upload(fileName, fileObj.file);
-
-        if (uploadError) throw uploadError;
-
-        const { data: { publicUrl } } = supabase.storage
-          .from('project-files')
-          .getPublicUrl(fileName);
-
-        uploadedFiles.push({
-          url: publicUrl,
-          type: fileObj.type,
-          path: fileName
-        });
+      // 1) Handle rename of model name and propagate to units
+      if (targetName !== editingDirection) {
+        if (currentModel) {
+          const { error: renameModelErr } = await supabase
+            .from('unit_models')
+            .update({ name: targetName })
+            .eq('id', currentModel.id);
+          if (renameModelErr) throw renameModelErr;
+        }
+        const { error: unitsRenameErr } = await supabase
+          .from('units')
+          .update({ direction_label: targetName })
+          .eq('project_id', projectId)
+          .eq('direction_label', editingDirection);
+        if (unitsRenameErr) throw unitsRenameErr;
       }
 
-      // Check if model exists
-      const existingModel = models.find(m => m.name === editingDirection);
-      
-      if (existingModel) {
-        // Update existing
-        const updatedFiles = [...existingModel.files, ...uploadedFiles];
-        const { error } = await supabase
-          .from('unit_models')
-          .update({ files: updatedFiles })
-          .eq('id', existingModel.id);
-        if (error) throw error;
-      } else {
-        // Create new
-        const { error } = await supabase
-          .from('unit_models')
-          .insert({
-            project_id: projectId,
-            name: editingDirection,
-            files: uploadedFiles
+      // 2) Upload new files if any
+      if (newModelFiles.length > 0) {
+        for (const fileObj of newModelFiles) {
+          const fileExt = fileObj.file.name.split('.').pop();
+          const fileName = `models/${projectId}/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+          
+          const { error: uploadError } = await supabase.storage
+            .from('project-files')
+            .upload(fileName, fileObj.file);
+  
+          if (uploadError) throw uploadError;
+  
+          const { data: { publicUrl } } = supabase.storage
+            .from('project-files')
+            .getPublicUrl(fileName);
+  
+          uploadedFiles.push({
+            url: publicUrl,
+            type: fileObj.type,
+            path: fileName
           });
-        if (error) throw error;
+        }
+  
+        // Check if model exists after rename
+        const { data: modelAfterRename, error: findErr } = await supabase
+          .from('unit_models')
+          .select('*')
+          .eq('project_id', projectId)
+          .eq('name', targetName)
+          .maybeSingle();
+        if (findErr) throw findErr;
+  
+        if (modelAfterRename) {
+          const updatedFiles = [...(modelAfterRename.files || []), ...uploadedFiles];
+          const { error } = await supabase
+            .from('unit_models')
+            .update({ files: updatedFiles })
+            .eq('id', modelAfterRename.id);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase
+            .from('unit_models')
+            .insert({
+              project_id: projectId,
+              name: targetName,
+              files: uploadedFiles
+            });
+          if (error) throw error;
+        }
       }
 
       setEditingDirection(null);
       setNewModelFiles([]);
+      setRenameName('');
       fetchModels();
     } catch (error: any) {
       alert('حدث خطأ أثناء حفظ النموذج: ' + error.message);
@@ -460,11 +484,27 @@ export default function ProjectPlansManager({ projectId }: ProjectPlansManagerPr
                     }`}
                   >
                     <div className={`p-4 border-b flex justify-between items-center rounded-t-xl ${isEditing ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-100'}`}>
-                      <div>
-                        <h4 className="font-bold text-lg text-gray-900">{direction}</h4>
-                        <span className="text-xs text-gray-500">
-                          {files.length > 0 ? `${files.length} ملفات` : 'لا توجد ملفات'}
-                        </span>
+                      <div className="flex flex-col gap-1">
+                        {!isEditing ? (
+                          <>
+                            <h4 className="font-bold text-lg text-gray-900">{direction}</h4>
+                            <span className="text-xs text-gray-500">
+                              {files.length > 0 ? `${files.length} ملفات` : 'لا توجد ملفات'}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <label className="text-xs font-bold text-gray-700">اسم النموذج</label>
+                            <input
+                              type="text"
+                              value={renameName}
+                              onChange={(e) => setRenameName(e.target.value)}
+                              className="w-64 p-2 border border-orange-200 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none bg-white"
+                              placeholder="أدخل اسم النموذج"
+                            />
+                            <span className="text-xs text-gray-500">تحديث الاسم سيغيّر اسم النموذج في جميع وحدات هذا المشروع المرتبطة به.</span>
+                          </>
+                        )}
                       </div>
                       {!isEditing ? (
                         <button 
@@ -604,7 +644,7 @@ export default function ProjectPlansManager({ projectId }: ProjectPlansManagerPr
                             </button>
                             <button
                               onClick={handleSaveModel}
-                              disabled={uploadingModel || newModelFiles.length === 0}
+                              disabled={uploadingModel || (newModelFiles.length === 0 && renameName === editingDirection)}
                               className="bg-orange-600 text-white px-6 py-2 rounded-lg hover:bg-orange-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed font-bold"
                             >
                               {uploadingModel ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}

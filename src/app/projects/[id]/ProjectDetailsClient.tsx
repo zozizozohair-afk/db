@@ -20,7 +20,9 @@ import {
   Maximize2,
   Settings,
   FolderOpen,
-  Table
+  Table,
+  Trash2,
+  Loader2
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -31,6 +33,7 @@ export default function ProjectDetails({ id }: { id: string }) {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'units' | 'files' | 'settings'>('units');
   const [isExcelMode, setIsExcelMode] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchProjectDetails = async () => {
     try {
@@ -69,6 +72,39 @@ export default function ProjectDetails({ id }: { id: string }) {
     }
   }, [id]);
 
+  const handleDeleteProject = async () => {
+    if (!project) return;
+    if (!confirm('هل أنت متأكد من حذف المشروع بالكامل وكل ما يتعلق به؟')) return;
+    if (!confirm('تأكيد نهائي: سيتم حذف جميع الوحدات والملفات والنماذج المرتبطة. متابعة؟')) return;
+    try {
+      setDeleting(true);
+      const { data: models } = await supabase
+        .from('unit_models')
+        .select('id, files')
+        .eq('project_id', id);
+      const { data: docs } = await supabase
+        .from('project_documents')
+        .select('id, file_path')
+        .eq('project_id', id);
+      const modelPaths = (models || []).flatMap((m: any) => (m.files || []).map((f: any) => f.path));
+      const docPaths = (docs || []).map((d: any) => d.file_path);
+      const allPaths = [...modelPaths, ...docPaths];
+      if (allPaths.length > 0) {
+        await supabase.storage.from('project-files').remove(allPaths);
+      }
+      await supabase.from('unit_models').delete().eq('project_id', id);
+      await supabase.from('project_documents').delete().eq('project_id', id);
+      await supabase.from('debts').delete().eq('project_id', id);
+      await supabase.from('units').delete().eq('project_id', id);
+      await supabase.from('projects').delete().eq('id', id);
+      window.location.href = '/';
+    } catch (e: any) {
+      alert(e?.message || 'تعذر حذف المشروع');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-50">
@@ -103,9 +139,19 @@ export default function ProjectDetails({ id }: { id: string }) {
               {project.status === 'active' ? 'نشط' : 'قيد المعالجة'}
             </span>
           </div>
-          
-          <div className="text-sm text-gray-500 hidden sm:block">
-            آخر تحديث: {new Date(project.created_at).toLocaleDateString('ar-SA')}
+          <div className="flex items-center gap-3">
+            <div className="text-sm text-gray-500 hidden sm:block">
+              آخر تحديث: {new Date(project.created_at).toLocaleDateString('ar-SA')}
+            </div>
+            <button
+              onClick={handleDeleteProject}
+              disabled={deleting}
+              className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold transition-colors ${deleting ? 'bg-red-200 text-white cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-700'}`}
+              title="حذف المشروع"
+            >
+              {deleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+              {deleting ? 'جارٍ الحذف...' : 'حذف المشروع'}
+            </button>
           </div>
         </div>
       </header>

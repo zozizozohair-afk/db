@@ -30,7 +30,18 @@ export interface Unit {
   water_meter: string;
   client_name: string;
   deed_number: string;
-  status: 'available' | 'sold' | 'sold_to_other' | 'resale' | 'pending_sale';
+  status: 
+    | 'available'
+    | 'sold'
+    | 'sold_to_other'
+    | 'pending_sale'
+    | 'resale'
+    | 'for_resale'
+    | 'rented'
+    | 'under_construction'
+    | 'deed_completed'
+    | 'resold'
+    | 'transferred_to_other';
   title_deed_owner?: string;
   client_id_number?: string;
   client_phone?: string;
@@ -43,6 +54,12 @@ export interface Unit {
   modification_engineer_reviewed?: boolean;
   modification_completed?: boolean;
   notes?: string;
+  resale_fee?: number | null;
+  marketing_fee?: number | null;
+  company_fee?: number | null;
+  lawyer_fee?: number | null;
+  resale_agreed_amount?: number | null;
+  resale_saved_at?: string | null;
 }
 
 export interface ProjectDocument {

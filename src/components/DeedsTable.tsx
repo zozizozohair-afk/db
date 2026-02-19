@@ -53,7 +53,11 @@ export default function DeedsTable({ units, loading, onMessageClick }: DeedsTabl
               </tr>
             ) : (
               units.map((unit) => (
-                <tr key={unit.id} className="hover:bg-gray-50/50 transition-colors">
+                <tr 
+                  key={unit.id} 
+                  className="hover:bg-gray-50/50 transition-colors cursor-pointer"
+                  onClick={() => onMessageClick(unit)}
+                >
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center text-blue-700 font-display font-bold border border-blue-100">
@@ -86,7 +90,7 @@ export default function DeedsTable({ units, loading, onMessageClick }: DeedsTabl
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-center">
                     <button
-                      onClick={() => onMessageClick(unit)}
+                      onClick={(e) => { e.stopPropagation(); onMessageClick(unit); }}
                       className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
                       title="إرسال رسالة"
                     >

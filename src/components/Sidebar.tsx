@@ -11,7 +11,8 @@ import {
   LogOut,
   Menu,
   X,
-  Search
+  Search,
+  CreditCard
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -20,6 +21,9 @@ const navigation = [
   { name: 'التعديلات', href: '/modifications', icon: FileEdit },
   { name: 'البحث الشامل', href: '/search', icon: Search },
   { name: 'مراجعة الصكوك', href: '/deeds', icon: FileCheck },
+  { name: 'إعادة البيع', href: '/resale', icon: Banknote },
+  { name: 'المديونية', href: '/debt', icon: CreditCard },
+  { name: 'تقرير المديونية', href: '/debt/report', icon: FileCheck },
 ];
 
 export default function Sidebar() {

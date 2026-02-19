@@ -2,6 +2,7 @@
   "name": "db",
   "compatibility_date": "2026-02-10",
   "assets": {
-    "directory": ".vercel/output/static"
+    "directory": ".vercel/output/static",
+    "exclude": ["_worker.js"]
   }
 }

@@ -24,6 +24,7 @@ export default function DeedsPage() {
   const [units, setUnits] = useState<EnrichedUnit[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorText, setErrorText] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterProject, setFilterProject] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -34,7 +35,7 @@ export default function DeedsPage() {
     'available': { label: 'غير مباعة', color: 'bg-green-100 text-green-700' },
     'sold': { label: 'مباعة', color: 'bg-red-100 text-red-700' },
     'sold_to_other': { label: 'مباعة لآخر', color: 'bg-gray-100 text-gray-700' },
-    'resale': { label: 'إعادة بيع', color: 'bg-purple-100 text-purple-700' },
+    'for_resale': { label: 'إعادة بيع', color: 'bg-purple-100 text-purple-700' },
     'pending_sale': { label: 'قيد البيع', color: 'bg-orange-100 text-orange-700' },
   };
 
@@ -45,27 +46,34 @@ export default function DeedsPage() {
   const fetchData = async () => {
     try {
       setLoading(true);
+      setErrorText(null);
+      const withTimeoutAny = (p: any, ms = 15000) =>
+        Promise.race<any>([
+          p as any,
+          new Promise<never>((_, rej) => setTimeout(() => rej(new Error('انتهت مهلة الاتصال بقاعدة البيانات')), ms)),
+        ]) as Promise<any>;
       
-      // Fetch projects
-      const { data: projectsData, error: projectsError } = await supabase
+      const { data: projectsData, error: projectsError } = await withTimeoutAny(
+        supabase
         .from('projects')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+      );
 
       if (projectsError) throw projectsError;
       setProjects(projectsData || []);
 
-      // Fetch units
-      const { data: unitsData, error: unitsError } = await supabase
+      const { data: unitsData, error: unitsError } = await withTimeoutAny(
+        supabase
         .from('units')
         .select('*')
-        .order('unit_number', { ascending: true });
+        .order('unit_number', { ascending: true })
+      );
 
       if (unitsError) throw unitsError;
 
-      // Enrich units with project data
-      const enrichedUnits = unitsData?.map(unit => {
-        const project = projectsData?.find(p => p.id === unit.project_id);
+      const enrichedUnits = unitsData?.map((unit: Unit) => {
+        const project = projectsData?.find((p: Project) => p.id === unit.project_id);
         return {
           ...unit,
           project_name: project?.name || 'غير معروف',
@@ -76,6 +84,8 @@ export default function DeedsPage() {
       setUnits(enrichedUnits);
     } catch (error) {
       console.error('Error fetching deeds data:', error);
+      const msg = (error as any)?.message || 'تعذر تحميل البيانات';
+      setErrorText(msg);
     } finally {
       setLoading(false);
     }
@@ -113,6 +123,11 @@ export default function DeedsPage() {
 
       {/* Filters */}
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-4">
+        {errorText && (
+          <div className="px-4 py-3 rounded-xl bg-red-50 text-red-700 border border-red-200 text-sm">
+            {errorText}
+          </div>
+        )}
         <div className="flex flex-col md:flex-row gap-4">
           {/* Project Filter */}
           <div className="flex-1">

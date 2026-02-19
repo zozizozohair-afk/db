@@ -352,7 +352,16 @@ function StatCard({ title, value, icon, trend, color }: { title: string, value: 
   return (
     <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
       <div className="flex justify-between items-start mb-3">
-        <div className={`p-2 rounded-lg bg-${color}-50`}>
+        <div
+          className={[
+            "p-2 rounded-lg",
+            color === "blue" ? "bg-blue-50" :
+            color === "emerald" ? "bg-emerald-50" :
+            color === "purple" ? "bg-purple-50" :
+            color === "amber" ? "bg-amber-50" :
+            "bg-gray-50"
+          ].join(" ")}
+        >
           {icon}
         </div>
         <span className="flex items-center text-[10px] font-medium text-green-600 bg-green-50 px-1.5 py-0.5 rounded-full">
