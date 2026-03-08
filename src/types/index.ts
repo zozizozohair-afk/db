@@ -98,3 +98,23 @@ export interface UnitModel {
   description?: string;
   files: UnitModelFile[];
 }
+
+export interface UnitContract {
+  id: string;
+  created_at: string;
+  unit_id: string;
+  type: string;
+  custom_type?: string;
+  file_url: string;
+  file_path: string;
+}
+
+export const CONTRACT_TYPES = {
+  under_construction: 'عقد تحت الإنشاء',
+  resale: 'عقد إعادة بيع',
+  financial_settlement: 'عقد تسوية مالية',
+  deed: 'عقد إفراغ',
+  waiver: 'تنازل',
+  power_of_attorney: 'وكالة',
+  other: 'أخرى'
+};

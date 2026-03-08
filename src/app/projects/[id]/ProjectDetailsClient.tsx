@@ -8,6 +8,7 @@ import ProjectFileManager from '../../../components/ProjectFileManager';
 import UnitsExcelView from '../../../components/UnitsExcelView';
 import ProjectPlansManager from '../../../components/ProjectPlansManager';
 import UnitCard from '../../../components/UnitCard';
+import { generateUnitsLogic } from '../../../utils/projectLogic';
 import { 
   Building2, 
   ArrowRight, 
@@ -22,7 +23,8 @@ import {
   FolderOpen,
   Table,
   Trash2,
-  Loader2
+  Loader2,
+  Edit
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -31,9 +33,17 @@ export default function ProjectDetails({ id }: { id: string }) {
   const [project, setProject] = useState<Project | null>(null);
   const [units, setUnits] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'units' | 'files' | 'settings'>('units');
+  const [activeTab, setActiveTab] = useState<'units' | 'files' | 'settings' | 'edit_basic'>('units');
   const [isExcelMode, setIsExcelMode] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  // Edit Basic Data State
+  const [editBasicData, setEditBasicData] = useState({
+    project_number: '',
+    orientation: 'North' as 'North' | 'South' | 'East' | 'West',
+    deed_number: ''
+  });
+  const [isSavingBasic, setIsSavingBasic] = useState(false);
 
   const fetchProjectDetails = async () => {
     try {
@@ -48,6 +58,11 @@ export default function ProjectDetails({ id }: { id: string }) {
 
       if (projectError) throw projectError;
       setProject(projectData);
+      setEditBasicData({
+        project_number: projectData.project_number,
+        orientation: projectData.orientation as any,
+        deed_number: projectData.deed_number || ''
+      });
 
       // 2. Fetch Units
       const { data: unitsData, error: unitsError } = await supabase
@@ -63,6 +78,75 @@ export default function ProjectDetails({ id }: { id: string }) {
       console.error('Error fetching details:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveBasicData = async () => {
+    if (!project) return;
+    try {
+      setIsSavingBasic(true);
+
+      const oldOrientation = project.orientation;
+      const newOrientation = editBasicData.orientation;
+      const isOrientationChanged = oldOrientation !== newOrientation;
+
+      // 1. Update Project
+      const { error: updateError } = await supabase
+        .from('projects')
+        .update({
+          project_number: editBasicData.project_number,
+          orientation: newOrientation,
+          deed_number: editBasicData.deed_number
+        })
+        .eq('id', id);
+
+      if (updateError) throw updateError;
+
+      // 2. Update Units if orientation changed (and units_per_floor is 4)
+      if (isOrientationChanged && project.units_per_floor === 4) {
+        // Regenerate logic for all units
+        // We need to map current units to their logical position (1, 2, 3, 4)
+        // Assumption: unit_number is sequential 1..N
+        
+        // Let's use generateUnitsLogic to get the "correct" labels for the new orientation
+        const generatedUnits = generateUnitsLogic(
+          newOrientation,
+          project.floors_count,
+          project.units_per_floor,
+          project.has_annex,
+          project.annex_count
+        );
+
+        // Update each unit in DB
+        // We match by unit_number
+        const updates = generatedUnits.map(genUnit => {
+          // Find the real unit ID if possible, or just update by project_id + unit_number
+          // Since we have 'units' state, we can use it, but safer to update by compound key or loop
+          return {
+            unit_number: genUnit.unitNumber,
+            direction_label: genUnit.directionLabel
+          };
+        });
+
+        // Supabase doesn't support bulk update with different values easily in one query unless we use upsert or RPC.
+        // We'll loop for now as N is small (usually < 100).
+        for (const update of updates) {
+          await supabase
+            .from('units')
+            .update({ direction_label: update.direction_label })
+            .eq('project_id', id)
+            .eq('unit_number', update.unit_number);
+        }
+      }
+
+      alert('تم حفظ التعديلات بنجاح');
+      fetchProjectDetails(); // Refresh
+      setActiveTab('units'); // Go back to units
+    } catch (error: any) {
+      console.error('Error saving basic data:', error);
+      alert('حدث خطأ أثناء الحفظ: ' + error.message);
+    } finally {
+      setIsSavingBasic(false);
     }
   };
 
@@ -274,8 +358,96 @@ export default function ProjectDetails({ id }: { id: string }) {
               <Settings size={18} />
               الإعدادات والخدمات
             </button>
+            <button
+              onClick={() => setActiveTab('edit_basic')}
+              className={`pb-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors ${
+                activeTab === 'edit_basic'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Edit size={18} />
+              تعديل بيانات أساسية
+            </button>
           </nav>
         </div>
+
+        {/* Edit Basic Data Tab */}
+        {activeTab === 'edit_basic' && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 max-w-2xl mx-auto">
+            <h2 className="text-xl font-bold mb-6 text-gray-800 flex items-center gap-2">
+              <Edit size={24} className="text-blue-600" />
+              تعديل البيانات الأساسية
+            </h2>
+            
+            <div className="space-y-6">
+              {/* Project Number */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  رقم المشروع
+                </label>
+                <input
+                  type="text"
+                  value={editBasicData.project_number}
+                  onChange={(e) => setEditBasicData({...editBasicData, project_number: e.target.value})}
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="مثال: 123"
+                />
+              </div>
+
+              {/* Deed Number */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  رقم الصك الأم
+                </label>
+                <input
+                  type="text"
+                  value={editBasicData.deed_number}
+                  onChange={(e) => setEditBasicData({...editBasicData, deed_number: e.target.value})}
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="رقم الصك"
+                />
+              </div>
+
+              {/* Orientation */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  اتجاه المشروع (الواجهة)
+                </label>
+                <select
+                  value={editBasicData.orientation}
+                  onChange={(e) => setEditBasicData({...editBasicData, orientation: e.target.value as any})}
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="North">شمال</option>
+                  <option value="South">جنوب</option>
+                  <option value="East">شرق</option>
+                  <option value="West">غرب</option>
+                </select>
+                <p className="mt-2 text-sm text-yellow-600 bg-yellow-50 p-2 rounded border border-yellow-200">
+                  تنبيه: تغيير اتجاه المشروع سيؤدي تلقائياً إلى إعادة حساب اتجاهات جميع الوحدات (للشقق النمطية 4 شقق).
+                </p>
+              </div>
+
+              <div className="pt-4 flex justify-end gap-3">
+                <button
+                  onClick={() => setActiveTab('units')}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                >
+                  إلغاء
+                </button>
+                <button
+                  onClick={handleSaveBasicData}
+                  disabled={isSavingBasic}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isSavingBasic && <Loader2 size={16} className="animate-spin" />}
+                  حفظ التعديلات
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Tab Content */}
         {activeTab === 'units' && (

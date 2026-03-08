@@ -55,11 +55,15 @@ export default function SearchPage() {
 
   // Search effect with debounce
   useEffect(() => {
+    // Dynamic debounce: Wait longer for numeric inputs (unit/project codes) to allow finishing typing
+    const isNumeric = /^\d/.test(searchTerm.trim());
+    const delay = isNumeric ? 800 : 300; 
+
     const timer = setTimeout(() => {
       // Always search if filters are active or search term exists
       // If everything is empty/all, we can fetch all or just wait (let's fetch all for "browse" feel)
       performSearch();
-    }, 300); // Reduced debounce time for more "instant" feel
+    }, delay);
 
     return () => clearTimeout(timer);
   }, [searchTerm, statusFilter, projectFilter]);
@@ -108,12 +112,24 @@ export default function SearchPage() {
       if (trimmedTerm) {
         // Sanitize term for .or() filter (commas break the syntax)
         const safeTerm = trimmedTerm.replace(/,/g, ' ');
+
+        // Fix: Pre-fetch projects to avoid "projects.project_number" syntax error in OR filter
+        const { data: projectMatches } = await supabase
+            .from('projects')
+            .select('id')
+            .ilike('project_number', `%${safeTerm}%`);
+            
+        const matchedProjectIds = projectMatches?.map(p => p.id) || [];
+
         const searchConditions = [
           `client_name.ilike.%${safeTerm}%`,
-          `phone_number.ilike.%${safeTerm}%`,
-          `deed_number.ilike.%${safeTerm}%`,
-          `projects.project_number.ilike.%${safeTerm}%` // Search project number partially
+          `client_phone.ilike.%${safeTerm}%`,
+          `deed_number.ilike.%${safeTerm}%`
         ];
+
+        if (matchedProjectIds.length > 0) {
+            searchConditions.push(`project_id.in.(${matchedProjectIds.join(',')})`);
+        }
 
         // Handle Unit Number search
         // Since unit_number is integer, we can only do exact match or we need to rely on the specific code format
@@ -136,7 +152,7 @@ export default function SearchPage() {
                 // (Or we could add it as an OR condition, but usually "110-5" is specific)
             } else if (pNum) {
                 // Just "110-" -> Search project number
-                searchConditions.push(`projects.project_number.ilike.%${pNum}%`);
+                query = query.ilike('projects.project_number', `%${pNum}%`);
             }
         } else {
             // No hyphen, generic search
@@ -146,7 +162,9 @@ export default function SearchPage() {
             }
             
             // Apply OR filter
-            query = query.or(searchConditions.join(','));
+            if (searchConditions.length > 0) {
+              query = query.or(searchConditions.join(','));
+            }
         }
       } else {
         // No search term, just filters

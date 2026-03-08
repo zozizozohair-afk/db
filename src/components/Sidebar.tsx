@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { 
   LayoutDashboard, 
   FileEdit, 
@@ -12,9 +12,11 @@ import {
   Menu,
   X,
   Search,
-  CreditCard
+  CreditCard,
+  Files
 } from 'lucide-react';
 import { useState } from 'react';
+import { supabase } from '../lib/supabaseClient';
 
 const navigation = [
   { name: 'المشاريع', href: '/', icon: LayoutDashboard },
@@ -24,11 +26,32 @@ const navigation = [
   { name: 'إعادة البيع', href: '/resale', icon: Banknote },
   { name: 'المديونية', href: '/debt', icon: CreditCard },
   { name: 'تقرير المديونية', href: '/debt/report', icon: FileCheck },
+  { name: 'أدوات PDF', href: '/pdf-tools', icon: Files },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  // Hide sidebar on login page
+  if (pathname === '/login') {
+    return null;
+  }
+
+  const handleLogout = async () => {
+    try {
+      setIsLoggingOut(true);
+      await supabase.auth.signOut();
+      router.push('/login');
+      router.refresh();
+    } catch (error) {
+      console.error('Error logging out:', error);
+    } finally {
+      setIsLoggingOut(false);
+    }
+  };
 
   return (
     <>
@@ -100,9 +123,13 @@ export default function Sidebar() {
             <Settings size={20} className="text-gray-400" />
             الإعدادات
           </Link>
-          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-red-500 hover:bg-red-50 transition-colors">
+          <button 
+            onClick={handleLogout}
+            disabled={isLoggingOut}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
+          >
             <LogOut size={20} />
-            تسجيل الخروج
+            {isLoggingOut ? 'جاري الخروج...' : 'تسجيل الخروج'}
           </button>
         </div>
       </aside>

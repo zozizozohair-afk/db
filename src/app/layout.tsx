@@ -28,7 +28,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ar" dir="rtl">
+    <html lang="ar" dir="rtl" suppressHydrationWarning>
       <body
         className={`${agcRegular.variable} ${arabicUI.variable} antialiased bg-[#f9f8f4] font-sans`}
       >

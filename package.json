@@ -12,9 +12,12 @@
     "cf:build": "next build && npx @cloudflare/next-on-pages"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.9.0",
     "@supabase/supabase-js": "^2.45.0",
     "lucide-react": "^0.424.0",
     "next": "15.5.2",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^5.5.207",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "recharts": "^2.8.0"
