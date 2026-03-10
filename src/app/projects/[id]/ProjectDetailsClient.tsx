@@ -7,6 +7,7 @@ import ProjectSettings from '../../../components/ProjectSettings';
 import ProjectFileManager from '../../../components/ProjectFileManager';
 import UnitsExcelView from '../../../components/UnitsExcelView';
 import ProjectPlansManager from '../../../components/ProjectPlansManager';
+import ProjectFilesSender from '../../../components/ProjectFilesSender';
 import UnitCard from '../../../components/UnitCard';
 import { generateUnitsLogic } from '../../../utils/projectLogic';
 import { 
@@ -24,7 +25,8 @@ import {
   Table,
   Trash2,
   Loader2,
-  Edit
+  Edit,
+  Share2
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -33,7 +35,7 @@ export default function ProjectDetails({ id }: { id: string }) {
   const [project, setProject] = useState<Project | null>(null);
   const [units, setUnits] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'units' | 'files' | 'settings' | 'edit_basic'>('units');
+  const [activeTab, setActiveTab] = useState<'units' | 'files' | 'settings' | 'edit_basic' | 'send_files'>('units');
   const [isExcelMode, setIsExcelMode] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -323,11 +325,11 @@ export default function ProjectDetails({ id }: { id: string }) {
         </div>
 
         {/* Tabs */}
-        <div className="border-b border-gray-200">
-          <nav className="-mb-px flex gap-8">
+        <div className="border-b border-gray-200 overflow-x-auto no-scrollbar">
+          <nav className="-mb-px flex gap-4 sm:gap-8 min-w-max pb-1">
             <button
               onClick={() => setActiveTab('units')}
-              className={`pb-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors ${
+              className={`pb-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${
                 activeTab === 'units'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -338,7 +340,7 @@ export default function ProjectDetails({ id }: { id: string }) {
             </button>
             <button
               onClick={() => setActiveTab('files')}
-              className={`pb-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors ${
+              className={`pb-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${
                 activeTab === 'files'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -348,8 +350,19 @@ export default function ProjectDetails({ id }: { id: string }) {
               الملفات والمستندات
             </button>
             <button
+              onClick={() => setActiveTab('send_files')}
+              className={`pb-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${
+                activeTab === 'send_files'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Share2 size={18} />
+              إرسال ملفات
+            </button>
+            <button
               onClick={() => setActiveTab('settings')}
-              className={`pb-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors ${
+              className={`pb-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${
                 activeTab === 'settings'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -360,7 +373,7 @@ export default function ProjectDetails({ id }: { id: string }) {
             </button>
             <button
               onClick={() => setActiveTab('edit_basic')}
-              className={`pb-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors ${
+              className={`pb-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${
                 activeTab === 'edit_basic'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -550,6 +563,10 @@ export default function ProjectDetails({ id }: { id: string }) {
 
         {activeTab === 'settings' && (
           <ProjectSettings project={project} onUpdate={fetchProjectDetails} />
+        )}
+
+        {activeTab === 'send_files' && (
+          <ProjectFilesSender project={project} units={units} />
         )}
 
       </main>
