@@ -21,6 +21,8 @@ import { Unit, Project } from '../../types';
 
 import MessageModal from '../../components/MessageModal';
 import DeedsTable, { EnrichedUnit } from '../../components/DeedsTable';
+import ReportCopyModal from '../../components/ReportCopyModal';
+import ReportPrintModal from '../../components/ReportPrintModal';
 
 export default function DeedsPage() {
   const [units, setUnits] = useState<EnrichedUnit[]>([]);
@@ -32,6 +34,8 @@ export default function DeedsPage() {
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'unit' | 'project'>('unit');
   const [selectedUnitForMessage, setSelectedUnitForMessage] = useState<EnrichedUnit | null>(null);
+  const [isReportCopyModalOpen, setIsReportCopyModalOpen] = useState(false);
+  const [isReportPrintModalOpen, setIsReportPrintModalOpen] = useState(false);
 
   // Status mapping
   const statusMap: Record<string, { label: string, color: string }> = {
@@ -118,73 +122,8 @@ export default function DeedsPage() {
     });
 
   const handlePrint = () => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-
-    const html = `
-      <html dir="rtl" lang="ar">
-        <head>
-          <title>تقرير مراجعة الصكوك - ${new Date().toLocaleDateString('ar-SA')}</title>
-          <style>
-            @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
-            body { font-family: 'Cairo', sans-serif; padding: 20px; color: #333; }
-            h1 { text-align: center; color: #2563eb; margin-bottom: 30px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th, td { border: 1px solid #e5e7eb; padding: 12px 8px; text-align: right; font-size: 14px; }
-            th { background-color: #f9fafb; color: #374151; font-weight: bold; }
-            tr:nth-child(even) { background-color: #fcfcfc; }
-            .badge { padding: 4px 8px; border-radius: 9999px; font-size: 12px; font-weight: bold; }
-            .available { background-color: #d1fae5; color: #065f46; }
-            .sold { background-color: #fee2e2; color: #991b1b; }
-            @media print {
-              .no-print { display: none; }
-              body { padding: 0; }
-              table { page-break-inside: auto; }
-              tr { page-break-inside: avoid; page-break-after: auto; }
-            }
-          </style>
-        </head>
-        <body>
-          <h1>تقرير مراجعة الصكوك</h1>
-          <p>تاريخ التقرير: ${new Date().toLocaleDateString('ar-SA')}</p>
-          <table>
-            <thead>
-              <tr>
-                <th>رقم الوحدة</th>
-                <th>المشروع</th>
-                <th>العميل الأصلي</th>
-                <th>رقم الجوال</th>
-                <th>قيمة إعادة البيع</th>
-                <th>رقم الصك</th>
-                <th>الحالة</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${filteredUnits.map(unit => `
-                <tr>
-                  <td>${unit.unit_number}</td>
-                  <td>${unit.project_name} (${unit.project_number})</td>
-                  <td>${unit.client_name || '-'}</td>
-                  <td>${unit.client_phone || '-'}</td>
-                  <td>${unit.resale_agreed_amount ? unit.resale_agreed_amount.toLocaleString('ar-SA') + ' ريال' : '-'}</td>
-                  <td>${unit.deed_number || '-'}</td>
-                  <td>${statusMap[unit.status]?.label || unit.status}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-          <script>
-            window.onload = () => {
-              window.print();
-              setTimeout(() => window.close(), 500);
-            };
-          </script>
-        </body>
-      </html>
-    `;
-
-    printWindow.document.write(html);
-    printWindow.document.close();
+    if (filteredUnits.length === 0) return;
+    setIsReportPrintModalOpen(true);
   };
 
   const handleStatusChange = async (unitId: string, newStatus: string) => {
@@ -206,43 +145,7 @@ export default function DeedsPage() {
 
   const handleCopyWhatsApp = () => {
     if (filteredUnits.length === 0) return;
-
-    let header = `*تقرير مراجعة الصكوك - ${new Date().toLocaleDateString('ar-SA')}*\n`;
-    
-    // Add filters to header if active
-    if (filterProject !== 'all') {
-      const project = projects.find(p => p.id === filterProject);
-      if (project) {
-        header += `📁 *المشروع:* ${project.name}\n`;
-      }
-    }
-    
-    if (filterStatus !== 'all') {
-      header += `📍 *الحالة:* ${statusMap[filterStatus]?.label || filterStatus}\n`;
-    }
-    
-    header += `\n`;
-
-    const body = filteredUnits.map(unit => {
-      let msg = `👤 *العميل:* ${unit.client_name || '-'}\n`;
-      msg += `🏠 *الوحدة:* ${unit.unit_number} - ${unit.project_name} (${unit.project_number})\n`;
-      msg += `🧭 *الاتجاه:* ${unit.direction_label || '-'}\n`;
-      msg += `📄 *رقم الصك:* ${unit.deed_number || '-'}\n`;
-      if (unit.resale_agreed_amount) {
-        msg += `💰 *إعادة بيع:* ${unit.resale_agreed_amount.toLocaleString('ar-SA')} ريال\n`;
-      }
-      msg += `📞 *الجوال:* ${unit.client_phone || '-'}\n`;
-      return msg;
-    }).join('\n-------------------\n\n');
-
-    const fullText = header + body;
-    
-    navigator.clipboard.writeText(fullText).then(() => {
-      alert('تم نسخ التقرير بصيغة واتساب بنجاح!');
-    }).catch(err => {
-      console.error('Failed to copy: ', err);
-      alert('حدث خطأ أثناء النسخ');
-    });
+    setIsReportCopyModalOpen(true);
   };
 
   return (
@@ -372,6 +275,24 @@ export default function DeedsPage() {
         isOpen={!!selectedUnitForMessage} 
         onClose={() => setSelectedUnitForMessage(null)} 
         unit={selectedUnitForMessage} 
+      />
+
+      {/* Report Copy Modal */}
+      <ReportCopyModal
+        isOpen={isReportCopyModalOpen}
+        onClose={() => setIsReportCopyModalOpen(false)}
+        units={filteredUnits}
+        filterProject={filterProject !== 'all' ? projects.find(p => p.id === filterProject)?.name : undefined}
+        filterStatus={filterStatus !== 'all' ? statusMap[filterStatus]?.label : undefined}
+      />
+
+      {/* Report Print Modal */}
+      <ReportPrintModal
+        isOpen={isReportPrintModalOpen}
+        onClose={() => setIsReportPrintModalOpen(false)}
+        units={filteredUnits}
+        filterProject={filterProject !== 'all' ? projects.find(p => p.id === filterProject)?.name : undefined}
+        filterStatus={filterStatus !== 'all' ? statusMap[filterStatus]?.label : undefined}
       />
     </div>
   );
