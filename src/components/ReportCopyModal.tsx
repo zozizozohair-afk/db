@@ -27,6 +27,7 @@ interface FieldOption {
 const FIELD_OPTIONS: FieldOption[] = [
   { id: 'unit_info', label: 'رقم الوحدة والمشروع', defaultChecked: true },
   { id: 'floor', label: 'الدور', defaultChecked: true },
+  { id: 'direction', label: 'اتجاه الوحدة', defaultChecked: true },
   { id: 'original_client', label: 'اسم العميل الأصلي', defaultChecked: true },
   { id: 'client_phone', label: 'رقم جوال العميل', defaultChecked: true },
   { id: 'current_client', label: 'اسم العميل الحالي (المفرغ له)', defaultChecked: true },
@@ -105,6 +106,10 @@ export default function ReportCopyModal({ isOpen, onClose, units, filterProject,
     
     if (selectedFields.floor) {
       msg += `🏢 *الدور:* ${unit.floor_label || unit.floor_number || '-'}\n`;
+    }
+    
+    if (selectedFields.direction) {
+      msg += `🧭 *اتجاه الوحدة:* ${unit.direction_label || '-'}\n`;
     }
     
     if (selectedFields.original_client) {

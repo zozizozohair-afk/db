@@ -27,6 +27,7 @@ const PRINT_FIELD_OPTIONS: FieldOption[] = [
   { id: 'unit_number', label: 'رقم الوحدة', defaultChecked: true },
   { id: 'project_name', label: 'المشروع', defaultChecked: true },
   { id: 'floor', label: 'الدور', defaultChecked: true },
+  { id: 'direction', label: 'اتجاه الوحدة', defaultChecked: true },
   { id: 'original_client', label: 'العميل الأصلي', defaultChecked: true },
   { id: 'client_phone', label: 'جوال العميل', defaultChecked: true },
   { id: 'current_client', label: 'المالك الحالي', defaultChecked: true },
@@ -364,6 +365,7 @@ export default function ReportPrintModal({ isOpen, onClose, units, filterProject
         ${selectedFields.unit_number ? `<td>${unit.unit_number}</td>` : ''}
         ${selectedFields.project_name ? `<td><div style="font-weight:700; color:#0c4a6e;">${unit.project_name}</div><div style="font-size:10px; color:#64748b;">${unit.project_number}</div></td>` : ''}
         ${selectedFields.floor ? `<td>${unit.floor_label || unit.floor_number || '-'}</td>` : ''}
+        ${selectedFields.direction ? `<td>${unit.direction_label || '-'}</td>` : ''}
         ${selectedFields.original_client ? `<td>${unit.client_name || '-'}</td>` : ''}
         ${selectedFields.client_phone ? `<td dir="ltr" style="font-family:monospace; font-weight:700;">${unit.client_phone || '-'}</td>` : ''}
         ${selectedFields.current_client ? `<td>${unit.title_deed_owner || '-'}</td>` : ''}
