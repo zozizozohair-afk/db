@@ -73,138 +73,145 @@ export default function SearchPage() {
     if (data) setProjectsList(data);
   };
 
-  const performSearch = async () => {
-    setLoading(true);
-    try {
-      const trimmedTerm = searchTerm.trim();
+ const performSearch = async () => {
+  setLoading(true);
 
-      // Optimize: If empty search and no specific filters, don't fetch all units
-      // User prefers to start with empty state until typing
-      if (!trimmedTerm && statusFilter === 'all' && projectFilter === 'all') {
-        setResults([]);
-        setFilteredResults([]);
-        setLoading(false);
-        return;
+  try {
+    const trimmedTerm = searchTerm.trim();
+
+    if (!trimmedTerm && statusFilter === 'all' && projectFilter === 'all') {
+      setResults([]);
+      setFilteredResults([]);
+      setLoading(false);
+      return;
+    }
+
+    let query = supabase
+      .from('units')
+      .select(`
+        *,
+        projects!inner (
+          id,
+          name,
+          project_number
+        )
+      `);
+
+    if (trimmedTerm) {
+      const safeTerm = trimmedTerm.replace(/,/g, ' ').trim();
+
+      const { data: projectMatches } = await supabase
+        .from('projects')
+        .select('id')
+        .ilike('project_number', `%${safeTerm}%`);
+
+      const matchedProjectIds = projectMatches?.map((p) => p.id) || [];
+
+      const searchConditions: string[] = [
+        `client_name.ilike.%${safeTerm}%`,
+        `client_phone.ilike.%${safeTerm}%`
+      ];
+
+      // دعم البحث برقم الصك
+      // إذا كان الإدخال رقمياً نضيف eq
+      if (!isNaN(Number(safeTerm))) {
+        searchConditions.push(`deed_number.eq.${safeTerm}`);
       }
-      
-      // Check for ProjectNumber-UnitNumber format (e.g. 101-5)
-      // We allow partial matches like "101-" or "101-5"
-      const codeMatch = trimmedTerm.match(/^(\d+)(?:-(\d+)?)?$/);
-      
-      let data;
-      
-      // Strategy 1: Explicit Code Search (contains hyphen or just numbers that might be project code)
-      // But we also want to search client names even if it looks like a number.
-      // So we will combine strategies or decide based on input.
-      // The user wants: "start writing 1, show me..."
-      
-      let query = supabase
-        .from('units')
-        .select(`
-          *,
-          projects!inner (
-            id,
-            name,
-            project_number
-          )
-        `);
 
-      if (trimmedTerm) {
-        // Sanitize term for .or() filter (commas break the syntax)
-        const safeTerm = trimmedTerm.replace(/,/g, ' ');
+      // إذا كان deed_number مخزن كنص، هذا يفيد للبحث الجزئي
+      searchConditions.push(`deed_number.ilike.%${safeTerm}%`);
 
-        // Fix: Pre-fetch projects to avoid "projects.project_number" syntax error in OR filter
-        const { data: projectMatches } = await supabase
+      if (matchedProjectIds.length > 0) {
+        searchConditions.push(`project_id.in.(${matchedProjectIds.join(',')})`);
+      }
+
+      const codeMatch = safeTerm.match(/^(\d+)(?:-(\d+)?)?$/);
+
+      if (safeTerm.includes('-') && codeMatch) {
+        const pNum = codeMatch[1];
+        const uNum = codeMatch[2];
+
+        if (pNum && uNum) {
+          const { data: exactProjectMatches } = await supabase
             .from('projects')
             .select('id')
-            .ilike('project_number', `%${safeTerm}%`);
-            
-        const matchedProjectIds = projectMatches?.map(p => p.id) || [];
+            .ilike('project_number', `%${pNum}%`);
 
-        const searchConditions = [
-          `client_name.ilike.%${safeTerm}%`,
-          `client_phone.ilike.%${safeTerm}%`,
-          `deed_number.ilike.%${safeTerm}%`
-        ];
+          const exactProjectIds = exactProjectMatches?.map((p) => p.id) || [];
 
-        if (matchedProjectIds.length > 0) {
-            searchConditions.push(`project_id.in.(${matchedProjectIds.join(',')})`);
-        }
+          if (exactProjectIds.length > 0) {
+            query = query
+              .in('project_id', exactProjectIds)
+              .eq('unit_number', Number(uNum));
+          } else {
+            query = query.eq('unit_number', Number(uNum));
+          }
+        } else if (pNum) {
+          const { data: onlyProjectMatches } = await supabase
+            .from('projects')
+            .select('id')
+            .ilike('project_number', `%${pNum}%`);
 
-        // Handle Unit Number search
-        // Since unit_number is integer, we can only do exact match or we need to rely on the specific code format
-        
-        // If the term has a hyphen, it's definitely a Code search intent
-        if (trimmedTerm.includes('-')) {
-            const parts = trimmedTerm.split('-');
-            const pNum = parts[0];
-            const uNum = parts[1];
-            
-            if (pNum && uNum) {
-                // Exact project match (or partial) AND unit match
-                // We'll treat this as a specific "Project-Unit" search
-                // Overriding the generic search conditions for this specific pattern
-                query = query
-                  .ilike('projects.project_number', `%${pNum}%`)
-                  .eq('unit_number', uNum); // Exact unit number if specified
-                  
-                // Clear generic conditions to focus on this specific intent
-                // (Or we could add it as an OR condition, but usually "110-5" is specific)
-            } else if (pNum) {
-                // Just "110-" -> Search project number
-                query = query.ilike('projects.project_number', `%${pNum}%`);
-            }
-        } else {
-            // No hyphen, generic search
-            // If it's a number, it could be a unit number
-            if (!isNaN(Number(trimmedTerm))) {
-               searchConditions.push(`unit_number.eq.${trimmedTerm}`);
-            }
-            
-            // Apply OR filter
-            if (searchConditions.length > 0) {
-              query = query.or(searchConditions.join(','));
-            }
+          const onlyProjectIds = onlyProjectMatches?.map((p) => p.id) || [];
+
+          if (onlyProjectIds.length > 0) {
+            query = query.in('project_id', onlyProjectIds);
+          } else {
+            setResults([]);
+            setFilteredResults([]);
+            setLoading(false);
+            return;
+          }
         }
       } else {
-        // No search term, just filters
+        // إذا كان الإدخال رقمياً، نضيف أيضاً رقم الوحدة
+        if (!isNaN(Number(safeTerm))) {
+          searchConditions.push(`unit_number.eq.${safeTerm}`);
+        }
+
+        if (searchConditions.length > 0) {
+          query = query.or(searchConditions.join(','));
+        }
       }
-
-      if (statusFilter !== 'all') {
-        query = query.eq('status', statusFilter);
-      }
-
-      if (projectFilter !== 'all') {
-        query = query.eq('project_id', projectFilter);
-      }
-
-      const { data: unitsData, error } = await query;
-      if (error) throw error;
-      data = unitsData;
-
-      // Process data to flatten project info
-      const processedData: SearchResultUnit[] = (data || []).map((unit: any) => ({
-        ...unit,
-        project_name: unit.projects?.name || '',
-        project_number: unit.projects?.project_number || '',
-        // Ensure ModificationUnit fields are present (defaults)
-        modifications_file_url: unit.modifications_file_url || '',
-        modification_client_confirmed: unit.modification_client_confirmed || false,
-        modification_engineer_reviewed: unit.modification_engineer_reviewed || false,
-        modification_completed: unit.modification_completed || false,
-        floor_number: unit.floor_number || 0,
-        project_id: unit.project_id || unit.projects?.id
-      }));
-
-      setResults(processedData);
-      setFilteredResults(processedData);
-
-    } catch (error: any) {
-      console.error('Error searching:', error.message || error, error.details || '', error.hint || '');
-    } finally {
-      setLoading(false);
     }
-  };
+
+    if (statusFilter !== 'all') {
+      query = query.eq('status', statusFilter);
+    }
+
+    if (projectFilter !== 'all') {
+      query = query.eq('project_id', projectFilter);
+    }
+
+    const { data: unitsData, error } = await query;
+
+    if (error) throw error;
+
+    const processedData: SearchResultUnit[] = (unitsData || []).map((unit: any) => ({
+      ...unit,
+      project_name: unit.projects?.name || '',
+      project_number: unit.projects?.project_number || '',
+      modifications_file_url: unit.modifications_file_url || '',
+      modification_client_confirmed: unit.modification_client_confirmed || false,
+      modification_engineer_reviewed: unit.modification_engineer_reviewed || false,
+      modification_completed: unit.modification_completed || false,
+      floor_number: unit.floor_number || 0,
+      project_id: unit.project_id || unit.projects?.id
+    }));
+
+    setResults(processedData);
+    setFilteredResults(processedData);
+  } catch (error: any) {
+    console.error(
+      'Error searching:',
+      error.message || error,
+      error.details || '',
+      error.hint || ''
+    );
+  } finally {
+    setLoading(false);
+  }
+};
 
   // Prepare data for ModificationsList
   const getModificationsData = (): ProjectWithModifications[] => {

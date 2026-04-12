@@ -9,6 +9,7 @@ import {
   LayoutGrid
 } from 'lucide-react';
 import { EnrichedUnit } from './DeedsTable';
+import { getUnitRooms, getUnitFacade } from '../utils/unitHelpers';
 
 interface ReportCopyModalProps {
   isOpen: boolean;
@@ -28,6 +29,8 @@ const FIELD_OPTIONS: FieldOption[] = [
   { id: 'unit_info', label: 'رقم الوحدة والمشروع', defaultChecked: true },
   { id: 'floor', label: 'الدور', defaultChecked: true },
   { id: 'direction', label: 'اتجاه الوحدة', defaultChecked: true },
+  { id: 'rooms', label: 'عدد الغرف', defaultChecked: true },
+  { id: 'facade', label: 'الواجهة', defaultChecked: true },
   { id: 'original_client', label: 'اسم العميل الأصلي', defaultChecked: true },
   { id: 'client_phone', label: 'رقم جوال العميل', defaultChecked: true },
   { id: 'current_client', label: 'اسم العميل الحالي (المفرغ له)', defaultChecked: true },
@@ -110,6 +113,14 @@ export default function ReportCopyModal({ isOpen, onClose, units, filterProject,
     
     if (selectedFields.direction) {
       msg += `🧭 *اتجاه الوحدة:* ${unit.direction_label || '-'}\n`;
+    }
+
+    if (selectedFields.rooms) {
+      msg += `🚪 *عدد الغرف:* ${getUnitRooms(unit)}\n`;
+    }
+
+    if (selectedFields.facade) {
+      msg += `🏠 *الواجهة:* ${getUnitFacade(unit)}\n`;
     }
     
     if (selectedFields.original_client) {
