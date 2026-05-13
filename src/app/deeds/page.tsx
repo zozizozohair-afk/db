@@ -356,7 +356,7 @@ export default function DeedsPage() {
                 <button
                   onClick={() => {
                     // Prepare data for Excel
-                    const data = matchedUnits.map(u => ({
+                    const data: any[] = matchedUnits.map(u => ({
                       'رقم الوحدة': u.unit_number,
                       'المشروع': u.project_name,
                       'رقم المشروع': u.project_number,
