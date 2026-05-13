@@ -79,19 +79,61 @@ export default function MessageModal({ isOpen, onClose, unit }: MessageModalProp
     const unitNum = unit.unit_number;
     const project = unit.project_name;
 
-    switch (messageType) {
-      case 'deed_transfer':
-        return `السلام عليكم ورحمة الله وبركاته،\n\nعزيزي العميل: ${name}\nنأمل منكم التكرم بزيارة مقر شركة مساكن الرفاهية للتطوير العقاري، وذلك لإتمام إجراءات إفراغ الصك الخاص بوحدتكم رقم ${unitNum} في مشروع ${project}.\n\nشاكرين لكم حسن تعاونكم.`;
-      
-      case 'resale_contract':
-        return `السلام عليكم ورحمة الله وبركاته،\n\nعزيزي العميل: ${name}\nنأمل منكم التكرم بزيارة مقر شركة مساكن الرفاهية للتطوير العقاري، وذلك لتوقيع عقد إعادة البيع الخاص بوحدتكم رقم ${unitNum} في مشروع ${project}.\n\nشاكرين لكم حسن تعاونكم.`;
-      
-      case 'payment_reminder':
-        return `السلام عليكم ورحمة الله وبركاته،\n\nعزيزي العميل: ${name}\nنود تذكيركم بموعد سداد الدفعة المتبقية المستحقة على وحدتكم رقم ${unitNum} في مشروع ${project}.\nنأمل منكم سرعة السداد لإتمام الإجراءات المتبقية.\n\nشاكرين لكم حسن تعاونكم مع شركة مساكن الرفاهية للتطوير العقاري.`;
-      
-      default:
-        return '';
+    const timestamp = new Date().toLocaleString('ar-SA', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    const stampLine = `\n\n_التاريخ والوقت: ${timestamp}_`;
+
+   switch (messageType) {
+
+  case 'deed_transfer':
+    return `السلام عليكم ورحمة الله وبركاته،\n\nعزيزنا العميل/ة: ${name}\nمالك الشقة رقم (${unitNum}-${unit.project_number})\n\nتبارك لكم شركة مساكن الرفاهية للتطوير العقاري صدور صك شقتكم، ونتمنى منكم التكرم بالحضور إلى مقر الشركة لعملية إفراغ الصك خلال مدة أقصاها شهر.\n\n📍 موقع الشركة (خرائط Google):\nhttps://maps.app.goo.gl/p15cgtYnbGFR4uBZ6${stampLine}`;
+
+
+  case 'resale_contract':
+    return `السلام عليكم ورحمة الله وبركاته،\n\nعميلنا الكريم: ${name}\n\nنفيدكم بأنه تم تجهيز عقد إعادة البيع الخاص بوحدتكم رقم (${unitNum}) في مشروع (${project}).\n\nنأمل منكم التكرم بزيارة مقر شركة مساكن الرفاهية للتطوير العقاري لتوقيع العقد واستكمال الإجراءات اللازمة.\n\n📍 موقع الشركة (خرائط Google):\nhttps://maps.app.goo.gl/p15cgtYnbGFR4uBZ6\n\nشاكرين لكم تعاونكم، ونسعد بخدمتكم دائمًا.\n\nشركة مساكن الرفاهية للتطوير العقاري.${stampLine}`;
+
+
+  case 'payment_reminder':
+    return `السلام عليكم ورحمة الله وبركاته،\n\nعميلنا الكريم: ${name}\n\nنود إشعاركم بوجود دفعة مستحقة على وحدتكم رقم (${unitNum}) ضمن مشروع (${project}).\n\nنأمل منكم سرعة السداد لاستكمال الإجراءات المتعلقة بالعقد وتفادي أي تأخير.\n\nشاكرين لكم حسن تعاونكم وثقتكم.\n\nشركة مساكن الرفاهية للتطوير العقاري.${stampLine}`;
+
+
+  default:
+    return '';
+}
+  };
+
+  const handleQuickDeedTransfer = () => {
+    const name = getRecipientName();
+    const unitNum = unit.unit_number;
+    const timestamp = new Date().toLocaleString('ar-SA', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    const stampLine = `\n\n_التاريخ والوقت: ${timestamp}_`;
+    const message = `السلام عليكم ورحمة الله وبركاته،\n\nعزيزنا العميل/ة: ${name}\nمالك الشقة رقم (${unitNum}-${unit.project_number})\n\nتبارك لكم شركة مساكن الرفاهية للتطوير العقاري صدور صك شقتكم، ونتمنى منكم التكرم بالحضور إلى مقر الشركة لعملية إفراغ الصك خلال مدة أقصاها شهر.\n\n📍 موقع الشركة (خرائط Google):\nhttps://maps.app.goo.gl/p15cgtYnbGFR4uBZ6${stampLine}`;
+
+    const phone = getRecipientPhone();
+    if (!phone) {
+      const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
+      window.open(url, '_blank');
+      return;
     }
+
+    const cleanPhone = phone.replace(/\D/g, '');
+    const formattedPhone = cleanPhone.startsWith('0') ? '966' + cleanPhone.substring(1) : cleanPhone;
+    const url = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank');
   };
 
   const handleCopy = () => {
@@ -191,18 +233,27 @@ export default function MessageModal({ isOpen, onClose, unit }: MessageModalProp
               <X size={20} className="text-gray-500" />
             </button>
           </div>
-          <div className="mt-3 inline-flex bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <div className="inline-flex bg-white border border-gray-200 rounded-xl overflow-hidden">
+              <button
+                onClick={() => setMode('custom')}
+                className={`px-3 py-1.5 text-sm font-bold ${mode === 'custom' ? 'bg-blue-600 text-white' : 'text-gray-600'}`}
+              >
+                مشاركة مخصصة
+              </button>
+              <button
+                onClick={() => setMode('template')}
+                className={`px-3 py-1.5 text-sm font-bold ${mode === 'template' ? 'bg-blue-600 text-white' : 'text-gray-600'}`}
+              >
+                رسائل جاهزة
+              </button>
+            </div>
             <button
-              onClick={() => setMode('custom')}
-              className={`px-3 py-1.5 text-sm font-bold ${mode === 'custom' ? 'bg-blue-600 text-white' : 'text-gray-600'}`}
+              onClick={handleQuickDeedTransfer}
+              className="px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-green-600/20"
             >
-              مشاركة مخصصة
-            </button>
-            <button
-              onClick={() => setMode('template')}
-              className={`px-3 py-1.5 text-sm font-bold ${mode === 'template' ? 'bg-blue-600 text-white' : 'text-gray-600'}`}
-            >
-              رسائل جاهزة
+              <Send size={18} />
+              إرسال سريع للإفراغ
             </button>
           </div>
         </div>

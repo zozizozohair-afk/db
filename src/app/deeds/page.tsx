@@ -15,9 +15,13 @@ import {
   User,
   X,
   Printer,
-  ArrowUpDown
+  ArrowUpDown,
+  Upload,
+  FileSpreadsheet,
+  Trash2
 } from 'lucide-react';
 import { Unit, Project } from '../../types';
+import * as XLSX from 'xlsx';
 
 import MessageModal from '../../components/MessageModal';
 import DeedsTable, { EnrichedUnit } from '../../components/DeedsTable';
@@ -36,6 +40,15 @@ export default function DeedsPage() {
   const [selectedUnitForMessage, setSelectedUnitForMessage] = useState<EnrichedUnit | null>(null);
   const [isReportCopyModalOpen, setIsReportCopyModalOpen] = useState(false);
   const [isReportPrintModalOpen, setIsReportPrintModalOpen] = useState(false);
+  
+  // Excel search state
+  const [excelSearchMode, setExcelSearchMode] = useState(false);
+  const [excelDeedNumbers, setExcelDeedNumbers] = useState<string[]>([]);
+  const [searchField, setSearchField] = useState<'deed_number' | 'client_id_number'>('deed_number');
+  const [showExcelResults, setShowExcelResults] = useState(false);
+  const [showResultBoxes, setShowResultBoxes] = useState(true);
+  const [matchedUnits, setMatchedUnits] = useState<EnrichedUnit[]>([]);
+  const [unmatchedNumbers, setUnmatchedNumbers] = useState<string[]>([]);
 
   // Status mapping
   const statusMap: Record<string, { label: string, color: string }> = {
@@ -148,6 +161,74 @@ export default function DeedsPage() {
     setIsReportCopyModalOpen(true);
   };
 
+  // Excel processing functions
+  const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = new Uint8Array(event.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+
+        // Extract all non-empty values from the first column
+        const numbers = jsonData
+          .flat()
+          .filter((val): val is string | number => val != null && val !== '')
+          .map(val => String(val).trim());
+
+        setExcelDeedNumbers(numbers);
+        setShowExcelResults(false);
+      } catch (error) {
+        console.error('Error reading Excel file:', error);
+        alert('حدث خطأ أثناء قراءة ملف Excel');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const performExcelSearch = () => {
+    if (excelDeedNumbers.length === 0) {
+      alert('يرجى رفع ملف Excel أولاً');
+      return;
+    }
+
+    const matched: EnrichedUnit[] = [];
+    const unmatched: string[] = [];
+
+    excelDeedNumbers.forEach(num => {
+      const unit = units.find(u => {
+        if (searchField === 'deed_number') {
+          return u.deed_number === num;
+        } else {
+          return u.client_id_number === num;
+        }
+      });
+
+      if (unit) {
+        matched.push({ ...unit, excel_match_number: num });
+      } else {
+        unmatched.push(num);
+      }
+    });
+
+    setMatchedUnits(matched);
+    setUnmatchedNumbers(unmatched);
+    setShowExcelResults(true);
+    setShowResultBoxes(true);
+  };
+
+  const clearExcelSearch = () => {
+    setExcelSearchMode(false);
+    setExcelDeedNumbers([]);
+    setShowExcelResults(false);
+    setMatchedUnits([]);
+    setUnmatchedNumbers([]);
+  };
+
   return (
     <div className="p-4 md:p-8 space-y-6 min-h-screen max-w-7xl mx-auto">
       {/* Header */}
@@ -161,23 +242,197 @@ export default function DeedsPage() {
             <p className="text-gray-500 text-sm">إدارة ومتابعة صكوك الوحدات وحالاتها</p>
           </div>
         </div>
-        
-        <button
-          onClick={handlePrint}
-          className="flex items-center justify-center gap-2 px-6 py-2.5 bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition-all shadow-md hover:shadow-lg font-bold"
-        >
-          <Printer size={20} />
-          طباعة التقرير
-        </button>
 
+        {/* Excel Search Toggle */}
         <button
-          onClick={handleCopyWhatsApp}
-          className="flex items-center justify-center gap-2 px-6 py-2.5 bg-[#25D366] text-white rounded-xl hover:bg-[#20ba59] transition-all shadow-md hover:shadow-lg font-bold"
+          onClick={() => {
+            if (excelSearchMode) {
+              clearExcelSearch();
+            } else {
+              setExcelSearchMode(true);
+            }
+          }}
+          className={`flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl transition-all shadow-md hover:shadow-lg font-bold ${
+            excelSearchMode
+              ? 'bg-purple-600 text-white hover:bg-purple-700'
+              : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+          }`}
         >
-          <MessageCircle size={20} />
-          نسخ للواتساب
+          <FileSpreadsheet size={20} />
+          {excelSearchMode ? 'إغلاق بحث Excel' : 'بحث من Excel'}
         </button>
+        
+        <div className="flex gap-2">
+          <button
+            onClick={handlePrint}
+            className="flex items-center justify-center gap-2 px-6 py-2.5 bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition-all shadow-md hover:shadow-lg font-bold"
+          >
+            <Printer size={20} />
+            طباعة التقرير
+          </button>
+
+          <button
+            onClick={handleCopyWhatsApp}
+            className="flex items-center justify-center gap-2 px-6 py-2.5 bg-[#25D366] text-white rounded-xl hover:bg-[#20ba59] transition-all shadow-md hover:shadow-lg font-bold"
+          >
+            <MessageCircle size={20} />
+            نسخ للواتساب
+          </button>
+        </div>
       </div>
+
+      {/* Excel Search Interface */}
+      {excelSearchMode && (
+        <div className="bg-purple-50 border border-purple-200 p-6 rounded-2xl space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-bold text-purple-800 flex items-center gap-2">
+              <FileSpreadsheet size={20} />
+              بحث من ملف Excel
+            </h3>
+            <button
+              onClick={clearExcelSearch}
+              className="text-purple-600 hover:text-purple-800 transition-colors"
+            >
+              <Trash2 size={18} />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Search Field Selection */}
+            <div>
+              <label className="block text-xs font-bold text-purple-700 mb-1.5">البحث حسب</label>
+              <div className="flex p-1 bg-purple-100 rounded-xl">
+                <button
+                  onClick={() => setSearchField('deed_number')}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    searchField === 'deed_number' ? 'bg-white text-purple-700 shadow-sm' : 'text-purple-500 hover:text-purple-700'
+                  }`}
+                >
+                  رقم الصك
+                </button>
+                <button
+                  onClick={() => setSearchField('client_id_number')}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    searchField === 'client_id_number' ? 'bg-white text-purple-700 shadow-sm' : 'text-purple-500 hover:text-purple-700'
+                  }`}
+                >
+                  رقم الهوية
+                </button>
+              </div>
+            </div>
+
+            {/* File Upload */}
+            <div>
+              <label className="block text-xs font-bold text-purple-700 mb-1.5">رفع ملف Excel</label>
+              <label className="flex items-center justify-center gap-2 w-full p-2.5 bg-white border-2 border-dashed border-purple-300 rounded-xl cursor-pointer hover:border-purple-500 hover:bg-purple-50 transition-all">
+                <Upload size={18} className="text-purple-600" />
+                <span className="text-sm text-purple-700">اختر ملف Excel</span>
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  onChange={handleExcelUpload}
+                  className="hidden"
+                />
+              </label>
+            </div>
+
+            {/* Search Button */}
+            <div className="flex items-end">
+              <button
+                onClick={performExcelSearch}
+                disabled={excelDeedNumbers.length === 0}
+                className="w-full flex items-center justify-center gap-2 px-6 py-2.5 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-all shadow-md hover:shadow-lg font-bold disabled:opacity-50"
+              >
+                <Search size={20} />
+                بحث ({excelDeedNumbers.length})
+              </button>
+            </div>
+          </div>
+
+          {/* Results */}
+          {showExcelResults && (
+            <div className="pt-4 border-t border-purple-200 space-y-4">
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => {
+                    // Prepare data for Excel
+                    const data = matchedUnits.map(u => ({
+                      'رقم الوحدة': u.unit_number,
+                      'المشروع': u.project_name,
+                      'رقم المشروع': u.project_number,
+                      'رقم من Excel': u.excel_match_number || '',
+                      'رقم الصك في النظام': u.deed_number || '',
+                      'المالك': u.title_deed_owner || u.client_name || '',
+                      'الحالة': statusMap[u.status]?.label || u.status
+                    }));
+                    
+                    // Add unmatched numbers if any
+                    if (unmatchedNumbers.length > 0) {
+                      unmatchedNumbers.forEach(num => {
+                        data.push({
+                          'رقم الوحدة': '',
+                          'المشروع': '',
+                          'رقم المشروع': '',
+                          'رقم من Excel': num,
+                          'رقم الصك في النظام': '',
+                          'المالك': '',
+                          'الحالة': 'لم يتم العثور عليه'
+                        });
+                      });
+                    }
+                    
+                    const ws = XLSX.utils.json_to_sheet(data);
+                    const wb = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wb, ws, 'نتائج البحث');
+                    XLSX.writeFile(wb, `نتائج_بحث_الصكوك_${new Date().toLocaleDateString('ar-SA').replace(/\//g, '-')}.xlsx`);
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all text-sm font-bold"
+                >
+                  <FileSpreadsheet size={18} />
+                  تحميل النتائج Excel
+                </button>
+                <button
+                  onClick={() => setShowResultBoxes(!showResultBoxes)}
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all text-sm font-bold"
+                >
+                  {showResultBoxes ? 'إخفاء القوائم' : 'إظهار القوائم'}
+                </button>
+              </div>
+              
+              {showResultBoxes && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-white p-4 rounded-xl border border-green-200">
+                    <h4 className="font-bold text-green-700 mb-2">
+                      تم العثور عليها: {matchedUnits.length}
+                    </h4>
+                    <div className="text-sm text-green-600">
+                      {matchedUnits.map(u => (
+                        <div key={u.id} className="py-1 border-b border-green-100 last:border-0">
+                          وحدة {u.unit_number} - {u.project_name}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {unmatchedNumbers.length > 0 && (
+                    <div className="bg-white p-4 rounded-xl border border-red-200">
+                      <h4 className="font-bold text-red-700 mb-2">
+                        لم يتم العثور عليها: {unmatchedNumbers.length}
+                      </h4>
+                      <div className="text-sm text-red-600">
+                        {unmatchedNumbers.map((num, i) => (
+                          <div key={i} className="py-1 border-b border-red-100 last:border-0">
+                            {num}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-4">
@@ -264,7 +519,7 @@ export default function DeedsPage() {
 
       {/* Results Table */}
       <DeedsTable 
-        units={filteredUnits} 
+        units={excelSearchMode && showExcelResults ? matchedUnits : filteredUnits} 
         loading={loading} 
         onMessageClick={setSelectedUnitForMessage} 
         onStatusChange={handleStatusChange}

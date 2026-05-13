@@ -8,6 +8,7 @@ import { Unit } from '../types';
 export interface EnrichedUnit extends Unit {
   project_name: string;
   project_number: string;
+  excel_match_number?: string;
 }
 
 interface DeedsTableProps {
@@ -49,18 +50,21 @@ export default function DeedsTable({ units, loading, onMessageClick, onStatusCha
               <th className="px-6 py-4 text-right text-xs font-display font-bold text-gray-500 uppercase tracking-wider">المشروع</th>
               <th className="px-6 py-4 text-right text-xs font-display font-bold text-gray-500 uppercase tracking-wider">المالك الحالي</th>
               <th className="px-6 py-4 text-center text-xs font-display font-bold text-gray-500 uppercase tracking-wider">الحالة</th>
-              <th className="px-6 py-4 text-center text-xs font-display font-bold text-gray-500 uppercase tracking-wider">رقم الصك</th>
+              {units.some(u => u.excel_match_number) && (
+                <th className="px-6 py-4 text-center text-xs font-display font-bold text-purple-600 uppercase tracking-wider">رقم من Excel</th>
+              )}
+              <th className="px-6 py-4 text-center text-xs font-display font-bold text-gray-500 uppercase tracking-wider">رقم الصك في النظام</th>
               <th className="px-6 py-4 text-center text-xs font-display font-bold text-gray-500 uppercase tracking-wider">إجراءات</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
               <tr>
-                <td colSpan={6} className="p-8 text-center text-gray-500">جاري التحميل...</td>
+                <td colSpan={units.some(u => u.excel_match_number) ? 7 : 6} className="p-8 text-center text-gray-500">جاري التحميل...</td>
               </tr>
             ) : units.length === 0 ? (
               <tr>
-                <td colSpan={6} className="p-8 text-center text-gray-500">لا توجد وحدات مطابقة</td>
+                <td colSpan={units.some(u => u.excel_match_number) ? 7 : 6} className="p-8 text-center text-gray-500">لا توجد وحدات مطابقة</td>
               </tr>
             ) : (
               units.map((unit) => (
@@ -130,6 +134,11 @@ export default function DeedsTable({ units, loading, onMessageClick, onStatusCha
                       </div>
                     </div>
                   </td>
+                  {units.some(u => u.excel_match_number) && (
+                    <td className="px-6 py-4 whitespace-nowrap text-center font-mono text-sm text-purple-700 bg-purple-50">
+                      {unit.excel_match_number || '-'}
+                    </td>
+                  )}
                   <td className="px-6 py-4 whitespace-nowrap text-center font-mono text-sm text-gray-600">
                     {unit.deed_number || '-'}
                   </td>

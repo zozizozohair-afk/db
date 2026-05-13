@@ -11,6 +11,8 @@ import {
   Loader2,
   ExternalLink
 } from 'lucide-react';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 
 interface ProjectFilesSenderProps {
   project: Project;
@@ -24,6 +26,7 @@ export default function ProjectFilesSender({ project, units }: ProjectFilesSende
   const [selectedCategories, setSelectedCategories] = useState<FileCategory[]>(['deed']);
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [downloadOption, setDownloadOption] = useState<'zip' | 'separate'>('zip');
 
   const categories: { id: FileCategory, label: string }[] = [
     { id: 'deed', label: 'الصك العقاري' },
@@ -115,32 +118,62 @@ export default function ProjectFilesSender({ project, units }: ProjectFilesSende
     try {
       const selectedUnitsData = units.filter(u => selectedUnits.includes(u.id));
       
-      let downloadedCount = 0;
-      for (const unit of selectedUnitsData) {
-        for (const cat of selectedCategories) {
-          const url = getFileUrl(unit, cat);
-          if (url) {
-            const catLabel = categories.find(c => c.id === cat)?.label || cat;
-            const fileName = `وحدة_${unit.unit_number}_مشروع_${project.project_number}_${catLabel}.pdf`;
-            
-            // Download the file
-            const response = await fetch(url);
-            const blob = await response.blob();
-            const link = document.createElement('a');
-            link.href = window.URL.createObjectURL(blob);
-            link.download = fileName;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            downloadedCount++;
+      if (downloadOption === 'zip') {
+        // ZIP option - with folders
+        const zip = new JSZip();
+        let addedCount = 0;
+        for (const unit of selectedUnitsData) {
+          const folderName = `وحدة_${unit.unit_number}_مشروع_${project.project_number}`;
+          const unitFolder = zip.folder(folderName);
+          
+          for (const cat of selectedCategories) {
+            const url = getFileUrl(unit, cat);
+            if (url && unitFolder) {
+              const catLabel = categories.find(c => c.id === cat)?.label || cat;
+              const fileName = `${catLabel}.pdf`;
+              const response = await fetch(url);
+              const blob = await response.blob();
+              unitFolder.file(fileName, blob);
+              addedCount++;
+            }
           }
         }
-      }
-      
-      if (downloadedCount > 0) {
-        alert(`تم تحميل ${downloadedCount} ملف بنجاح. يمكنك الآن مشاركتها يدوياً عبر الواتساب.`);
+        
+        if (addedCount > 0) {
+          const zipBlob = await zip.generateAsync({ type: 'blob' });
+          saveAs(zipBlob, `مشروع_${project.project_number}_ملفات_الوحدات.zip`);
+          alert(`تم تحميل ${addedCount} ملف في ملفات مضغوطة بنجاح!`);
+        } else {
+          alert('لم يتم العثور على أي ملفات لتحميلها.');
+        }
       } else {
-        alert('لم يتم العثور على أي ملفات لتحميلها.');
+        // Separate files option
+        let downloadedCount = 0;
+        for (const unit of selectedUnitsData) {
+          for (const cat of selectedCategories) {
+            const url = getFileUrl(unit, cat);
+            if (url) {
+              const catLabel = categories.find(c => c.id === cat)?.label || cat;
+              const fileName = `وحدة_${unit.unit_number}_مشروع_${project.project_number}_${catLabel}.pdf`;
+              
+              const response = await fetch(url);
+              const blob = await response.blob();
+              const link = document.createElement('a');
+              link.href = window.URL.createObjectURL(blob);
+              link.download = fileName;
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+              downloadedCount++;
+            }
+          }
+        }
+        
+        if (downloadedCount > 0) {
+          alert(`تم تحميل ${downloadedCount} ملف بنجاح.`);
+        } else {
+          alert('لم يتم العثور على أي ملفات لتحميلها.');
+        }
       }
     } catch (error) {
       console.error('Error downloading files:', error);
@@ -162,7 +195,46 @@ export default function ProjectFilesSender({ project, units }: ProjectFilesSende
             اختر الوحدات والملفات المطلوب تحميلها بأسماء منظمة للمشاركة
           </p>
         </div>
-        
+      </div>
+
+      {/* Download Option Selection */}
+      <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+        <h4 className="text-sm font-bold text-gray-700 mb-3">طريقة التحميل:</h4>
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={() => setDownloadOption('zip')}
+            className={`flex-1 min-w-[200px] flex items-center justify-center gap-2 p-3 rounded-xl border transition-all ${
+              downloadOption === 'zip'
+                ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-sm'
+                : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+            }`}
+          >
+            <FileText size={18} />
+            <div className="text-right">
+              <div className="font-bold text-sm">ملف ZIP مع مجلدات</div>
+              <div className="text-[10px]">كل وحدة في مجلد خاص بها</div>
+            </div>
+            {downloadOption === 'zip' && <CheckSquare size={16} className="mr-auto" />}
+          </button>
+          <button
+            onClick={() => setDownloadOption('separate')}
+            className={`flex-1 min-w-[200px] flex items-center justify-center gap-2 p-3 rounded-xl border transition-all ${
+              downloadOption === 'separate'
+                ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-sm'
+                : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+            }`}
+          >
+            <FileText size={18} />
+            <div className="text-right">
+              <div className="font-bold text-sm">ملفات منفصلة</div>
+              <div className="text-[10px]">تحميل كل ملف بشكل منفصل</div>
+            </div>
+            {downloadOption === 'separate' && <CheckSquare size={16} className="mr-auto" />}
+          </button>
+        </div>
+      </div>
+
+      <div className="flex justify-end">
         <button
           onClick={handleDownloadAndShare}
           disabled={isProcessing || selectedUnits.length === 0}
