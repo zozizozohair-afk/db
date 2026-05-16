@@ -13,13 +13,15 @@ import {
   X,
   Search,
   CreditCard,
-  Files
+  Files,
+  Users
 } from 'lucide-react';
 import { useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
 const navigation = [
   { name: 'المشاريع', href: '/', icon: LayoutDashboard },
+  { name: 'العملاء', href: '/clients', icon: Users },
   { name: 'التعديلات', href: '/modifications', icon: FileEdit },
   { name: 'البحث الشامل', href: '/search', icon: Search },
   { name: 'مراجعة الصكوك', href: '/deeds', icon: FileCheck },

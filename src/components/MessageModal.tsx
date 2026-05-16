@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { Unit } from '../types';
 
-type MessageType = 'deed_transfer' | 'resale_contract' | 'payment_reminder';
+type MessageType = 'deed_transfer' | 'resale_contract' | 'payment_reminder' | 'meter_transfer';
 
 interface MessageModalProps {
   isOpen: boolean;
@@ -103,6 +103,8 @@ export default function MessageModal({ isOpen, onClose, unit }: MessageModalProp
   case 'payment_reminder':
     return `السلام عليكم ورحمة الله وبركاته،\n\nعميلنا الكريم: ${name}\n\nنود إشعاركم بوجود دفعة مستحقة على وحدتكم رقم (${unitNum}) ضمن مشروع (${project}).\n\nنأمل منكم سرعة السداد لاستكمال الإجراءات المتعلقة بالعقد وتفادي أي تأخير.\n\nشاكرين لكم حسن تعاونكم وثقتكم.\n\nشركة مساكن الرفاهية للتطوير العقاري.${stampLine}`;
 
+  case 'meter_transfer':
+    return `السلام عليكم ورحمة الله وبركاته،\n\nعزيزنا العميل/ة: ${name}\n\nيرجى نقل عداد شقتك رقم (${unitNum}-${unit.project_number})\n\nتفاصيل:\n- اسم المالك: ${name}\n- رقم الشقة: ${unitNum}\n- رقم الحساب: ${unit.account_number || 'غير متاح'}\n\nخطوات النقل:\n1. خش تطبيق الطاقة السعوديه سوي حساب او سجل دخول\n2. دور على شي اسمه اضافه حساب او توثيق ملكيه\n3. حط رقم الحساب سوي بحث\n4. اختر مالك مستفيد\n5. تضهر نافذه يطلب رقم الصك سوي تاكيد مو مهم تحط الصك\n6. سوي اوافق ثم ارسال الطلب\n7. بيعطيك تم ارسال الطلب\n\nملاحظة: صور الشاشه وحتفظ برقم الطلب خلال يوم يكون جاهز.\n\n${stampLine}`;
 
   default:
     return '';
@@ -443,6 +445,14 @@ export default function MessageModal({ isOpen, onClose, unit }: MessageModalProp
                   >
                     <div className="font-bold text-gray-900 group-hover:text-blue-700">تذكير بالسداد</div>
                     <div className="text-xs text-gray-500 mt-1">تذكير العميل بسداد المبالغ المتبقية</div>
+                  </button>
+
+                  <button 
+                    onClick={() => { setMessageType('meter_transfer'); setStep(3); }}
+                    className="p-4 border border-gray-200 rounded-xl hover:border-yellow-500 hover:bg-yellow-50 transition-all text-right group"
+                  >
+                    <div className="font-bold text-gray-900 group-hover:text-yellow-700">نقل عداد الكهرباء</div>
+                    <div className="text-xs text-gray-500 mt-1">إرشادات نقل عداد الكهرباء مع رقم الحساب</div>
                   </button>
                 </div>
               </div>

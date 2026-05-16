@@ -299,6 +299,7 @@ export default function UnitsExcelView({ units: initialUnits, onUpdate, onCancel
         floor_label: u.floor_label,
         direction_label: u.direction_label,
         electricity_meter: u.electricity_meter,
+        account_number: u.account_number,
         deed_number: u.deed_number,
         client_name: u.client_name,
         title_deed_owner: u.title_deed_owner,
@@ -431,6 +432,10 @@ export default function UnitsExcelView({ units: initialUnits, onUpdate, onCancel
                 className={`p-3 border-b border-gray-300 font-bold bg-blue-50 text-blue-900 cursor-pointer ${getColumnClass('electricity_meter', 'w-32')}`}
                 onClick={() => handleColumnFocus('electricity_meter')}
               >رقم العداد</th>
+              <th 
+                className={`p-3 border-b border-gray-300 font-bold bg-blue-50 text-blue-900 cursor-pointer ${getColumnClass('account_number', 'w-32')}`}
+                onClick={() => handleColumnFocus('account_number')}
+              >رقم الحساب</th>
               <th 
                 className={`p-3 border-b border-gray-300 font-bold bg-blue-50 text-blue-900 cursor-pointer ${getColumnClass('deed_number', 'w-32')}`}
                 onClick={() => handleColumnFocus('deed_number')}
@@ -658,6 +663,17 @@ export default function UnitsExcelView({ units: initialUnits, onUpdate, onCancel
                     onPaste={(e) => handlePaste(e, index, 'electricity_meter')}
                     onFocus={() => handleColumnFocus('electricity_meter')}
                     className={`w-full h-full p-2 border-0 outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500 font-medium placeholder-gray-400 transition-all duration-300 ${!activeColumn ? 'text-black' : activeColumn === 'electricity_meter' ? 'text-black text-base' : 'text-gray-400 text-[10px]'}`}
+                    placeholder="-"
+                  />
+                </td>
+                <td className="p-0 border-r border-gray-200">
+                  <input
+                    type="text"
+                    value={unit.account_number || ''}
+                    onChange={(e) => handleChange(unit.id, 'account_number', e.target.value)}
+                    onPaste={(e) => handlePaste(e, index, 'account_number')}
+                    onFocus={() => handleColumnFocus('account_number')}
+                    className={`w-full h-full p-2 border-0 outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500 font-medium placeholder-gray-400 transition-all duration-300 ${!activeColumn ? 'text-black' : activeColumn === 'account_number' ? 'text-black text-base' : 'text-gray-400 text-[10px]'}`}
                     placeholder="-"
                   />
                 </td>

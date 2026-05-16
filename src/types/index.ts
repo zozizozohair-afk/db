@@ -60,6 +60,9 @@ export interface Unit {
   lawyer_fee?: number | null;
   resale_agreed_amount?: number | null;
   resale_saved_at?: string | null;
+  original_client_id?: string;
+  current_client_id?: string;
+  account_number?: string;
 }
 
 export interface ProjectDocument {
@@ -118,3 +121,32 @@ export const CONTRACT_TYPES = {
   power_of_attorney: 'وكالة',
   other: 'أخرى'
 };
+
+export interface Client {
+  id: string;
+  created_at: string;
+  name: string;
+  id_number?: string;
+  phone?: string;
+  notes?: string;
+}
+
+export interface UnitOwnershipHistory {
+  id: string;
+  created_at: string;
+  unit_id: string;
+  client_id?: string;
+  previous_client_id?: string;
+  transaction_type: 'purchase' | 'sale' | 'transfer';
+  transaction_date?: string;
+  price?: number;
+  notes?: string;
+}
+
+export interface EnrichedClient extends Client {
+  units: {
+    unit: Unit;
+    project: Project;
+    history: UnitOwnershipHistory[];
+  }[];
+}
