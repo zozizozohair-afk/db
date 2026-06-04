@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 import { Loader2, LogIn } from 'lucide-react';
+import Image from 'next/image';
+import logo from '../public/logo.png';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -44,8 +46,10 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-xl shadow-lg border border-gray-100">
         <div className="text-center">
-          <div className="mx-auto h-12 w-12 bg-blue-100 rounded-full flex items-center justify-center mb-4">
-            <LogIn className="h-6 w-6 text-blue-600" />
+          <div className="mx-auto mb-5">
+            <div className="relative h-20 w-full overflow-hidden">
+              <Image src={logo} alt="مساكن" fill priority className="object-cover object-center scale-105" />
+            </div>
           </div>
           <h2 className="text-3xl font-bold text-gray-900 font-arabic-ui">
             تسجيل الدخول

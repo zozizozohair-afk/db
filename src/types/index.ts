@@ -150,3 +150,62 @@ export interface EnrichedClient extends Client {
     history: UnitOwnershipHistory[];
   }[];
 }
+
+export type CrmPipelineStage = {
+  id: string;
+  created_at: string;
+  name: string;
+  sort_order: number;
+};
+
+export type CrmClientStage = {
+  client_id: string;
+  stage_id: string | null;
+  updated_at: string;
+};
+
+export type CrmRelationType = 'prospect' | 'original' | 'current';
+
+export type CrmClientUnit = {
+  id: string;
+  created_at: string;
+  client_id: string;
+  unit_id: string;
+  relation_type: CrmRelationType;
+};
+
+export type CrmActivityChannel = 'note' | 'call' | 'whatsapp' | 'visit' | 'email';
+
+export type CrmActivityOutcome = 'completed' | 'no_answer' | 'appointment';
+
+export type CrmActivity = {
+  id: string;
+  created_at: string;
+  client_id: string;
+  unit_id: string | null;
+  channel: CrmActivityChannel;
+  content: string;
+  created_by?: string | null;
+  next_contact_at?: string | null;
+  outcome?: CrmActivityOutcome | null;
+  appointment_at?: string | null;
+  appointment_with?: string | null;
+};
+
+export type CrmTaskStatus = 'open' | 'done';
+
+export type CrmTaskPriority = 'low' | 'medium' | 'high';
+
+export type CrmTask = {
+  id: string;
+  created_at: string;
+  client_id: string;
+  unit_id: string | null;
+  assigned_to?: string | null;
+  updated_at?: string | null;
+  completed_at?: string | null;
+  title: string;
+  due_at: string | null;
+  status: CrmTaskStatus;
+  priority: CrmTaskPriority;
+};
