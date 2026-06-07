@@ -34,6 +34,13 @@ create table if not exists public.crm_activities (
   appointment_with text
 );
 
+create table if not exists public.crm_activity_units (
+  activity_id uuid not null references public.crm_activities(id) on delete cascade,
+  unit_id uuid not null references public.units(id) on delete cascade,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  primary key (activity_id, unit_id)
+);
+
 create table if not exists public.crm_tasks (
   id uuid default gen_random_uuid() primary key,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
@@ -41,6 +48,7 @@ create table if not exists public.crm_tasks (
   unit_id uuid references public.units(id) on delete set null,
   assigned_to uuid,
   title text not null,
+  description text,
   due_at timestamp with time zone,
   status text not null default 'open' check (status in ('open', 'done')),
   priority text not null default 'medium' check (priority in ('low', 'medium', 'high'))
@@ -50,26 +58,32 @@ create index if not exists crm_activities_client_id_created_at_idx on public.crm
 create index if not exists crm_tasks_client_id_status_due_at_idx on public.crm_tasks (client_id, status, due_at);
 create index if not exists crm_client_units_client_id_idx on public.crm_client_units (client_id);
 create index if not exists crm_client_units_unit_id_idx on public.crm_client_units (unit_id);
+create index if not exists crm_activity_units_activity_id_idx on public.crm_activity_units (activity_id);
+create index if not exists crm_activity_units_unit_id_idx on public.crm_activity_units (unit_id);
 
 alter table if exists public.crm_pipeline_stages enable row level security;
 alter table if exists public.crm_client_stage enable row level security;
 alter table if exists public.crm_client_units enable row level security;
 alter table if exists public.crm_activities enable row level security;
+alter table if exists public.crm_activity_units enable row level security;
 alter table if exists public.crm_tasks enable row level security;
 
 drop policy if exists "Allow all access" on public.crm_pipeline_stages;
 drop policy if exists "Allow all access" on public.crm_client_stage;
 drop policy if exists "Allow all access" on public.crm_client_units;
 drop policy if exists "Allow all access" on public.crm_activities;
+drop policy if exists "Allow all access" on public.crm_activity_units;
 drop policy if exists "Allow all access" on public.crm_tasks;
 
 create policy "Allow all access" on public.crm_pipeline_stages for all using (true) with check (true);
 create policy "Allow all access" on public.crm_client_stage for all using (true) with check (true);
 create policy "Allow all access" on public.crm_client_units for all using (true) with check (true);
 create policy "Allow all access" on public.crm_activities for all using (true) with check (true);
+create policy "Allow all access" on public.crm_activity_units for all using (true) with check (true);
 create policy "Allow all access" on public.crm_tasks for all using (true) with check (true);
 
 alter table public.crm_tasks add column if not exists assigned_to uuid;
+alter table public.crm_tasks add column if not exists description text;
 alter table public.crm_tasks add column if not exists updated_at timestamp with time zone default timezone('utc'::text, now()) not null;
 alter table public.crm_tasks add column if not exists completed_at timestamp with time zone;
 

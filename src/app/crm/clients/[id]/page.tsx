@@ -489,6 +489,7 @@ export default function CrmClientPage() {
                       <div className={`font-bold ${t.status === 'done' ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
                         {t.title}
                       </div>
+                      {t.description ? <div className="mt-2 text-sm text-gray-700 whitespace-pre-wrap">{t.description}</div> : null}
                       <div className="text-xs text-gray-500 mt-1">
                         {t.due_at ? `موعد: ${new Date(t.due_at).toLocaleString('ar-SA')}` : 'بدون موعد'}
                         <span className="text-gray-300 mx-2">•</span>

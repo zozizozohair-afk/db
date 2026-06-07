@@ -226,6 +226,7 @@ export default function CrmReportsPage() {
           'unit_id',
           'assigned_to',
           'title',
+          'description',
           'due_at',
           'status',
           'priority',
@@ -450,7 +451,10 @@ export default function CrmReportsPage() {
               <div class="strong">${escapeHtml(clientName)}</div>
               <div class="muted" dir="ltr">${escapeHtml(clientPhone)}</div>
             </td>
-            <td class="pre">${escapeHtml(String(t.title || '').trim())}</td>
+            <td class="pre">
+              <div class="strong">${escapeHtml(String(t.title || '').trim())}</div>
+              ${t.description ? `<div class="muted pre">${escapeHtml(String(t.description || '').trim())}</div>` : ``}
+            </td>
             <td class="strong">${escapeHtml(statusLabel(String(t.status)))}</td>
             <td class="strong">${escapeHtml(priorityLabel(String(t.priority)))}</td>
             <td>${escapeHtml(formatDate(t.due_at))}</td>
@@ -933,7 +937,10 @@ export default function CrmReportsPage() {
                               {t.client?.phone || '-'}
                             </div>
                           </td>
-                          <td className="py-3 px-4 text-gray-900 whitespace-pre-wrap">{String(t.title || '').trim()}</td>
+                          <td className="py-3 px-4 text-gray-900 whitespace-pre-wrap">
+                            <div className="font-bold">{String(t.title || '').trim()}</div>
+                            {t.description ? <div className="mt-1 text-xs text-gray-600 whitespace-pre-wrap">{String(t.description || '').trim()}</div> : null}
+                          </td>
                           <td className="py-3 px-4 font-bold text-gray-900">{statusLabel(String(t.status))}</td>
                           <td className="py-3 px-4 font-bold text-gray-900">{priorityLabel(String(t.priority))}</td>
                           <td className="py-3 px-4 text-gray-700 whitespace-nowrap">{t.due_at ? new Date(t.due_at).toLocaleString('ar-SA') : '-'}</td>

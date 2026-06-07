@@ -1,9 +1,12 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Save, RefreshCw, ArrowRight, Check, Loader2 } from 'lucide-react';
+import dynamic from 'next/dynamic';
+import { X, Plus, Save, RefreshCw, ArrowRight, Check, Loader2, MapPin, LocateFixed } from 'lucide-react';
 import { generateUnitsLogic, GeneratedUnit } from '../utils/projectLogic';
 import { supabase } from '../lib/supabaseClient';
+
+const OSMLocationPicker = dynamic(() => import('./OSMLocationPicker'), { ssr: false });
 
 interface AddProjectModalProps {
   isOpen: boolean;
@@ -34,6 +37,10 @@ export default function AddProjectModal({ isOpen, onClose, onSave, onSuccess }: 
 
   // Generated Units Preview
   const [generatedUnits, setGeneratedUnits] = useState<GeneratedUnit[]>([]);
+
+  // Location (OSM)
+  const [location, setLocation] = useState<{ lat: number | null; lng: number | null }>({ lat: null, lng: null });
+  const [locationUrl, setLocationUrl] = useState('');
 
   // --- Effects ---
 
@@ -82,9 +89,34 @@ export default function AddProjectModal({ isOpen, onClose, onSave, onSuccess }: 
     setCustomDirections(newDirs);
   };
 
+  const buildOSMLink = (lat: number, lng: number) =>
+    `https://www.openstreetmap.org/?mlat=${encodeURIComponent(lat)}&mlon=${encodeURIComponent(lng)}#map=18/${encodeURIComponent(
+      lat
+    )}/${encodeURIComponent(lng)}`;
+
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) {
+      alert('ميزة تحديد الموقع غير مدعومة في هذا المتصفح');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = Number(pos.coords.latitude.toFixed(6));
+        const lng = Number(pos.coords.longitude.toFixed(6));
+        setLocation({ lat, lng });
+        setLocationUrl((prev) => prev.trim() || buildOSMLink(lat, lng));
+      },
+      () => alert('تعذر الحصول على موقعك الحالي'),
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
   const handleSave = async () => {
     try {
       setIsSaving(true);
+      const hasCoords = typeof location.lat === 'number' && typeof location.lng === 'number';
+      const finalLocationUrl =
+        locationUrl.trim() || (hasCoords ? buildOSMLink(location.lat as number, location.lng as number) : null);
       
       // 1. Insert Project
       const { data: projectData, error: projectError } = await supabase
@@ -98,6 +130,9 @@ export default function AddProjectModal({ isOpen, onClose, onSave, onSuccess }: 
           units_per_floor: unitsPerFloor,
           has_annex: hasAnnex,
           annex_count: annexCount,
+          location_lat: hasCoords ? location.lat : null,
+          location_lng: hasCoords ? location.lng : null,
+          location_url: finalLocationUrl,
           status: 'under_construction' // Default status
         })
         .select()
@@ -154,6 +189,8 @@ export default function AddProjectModal({ isOpen, onClose, onSave, onSuccess }: 
     setAnnexCount(1);
     setCustomDirections([]);
     setGeneratedUnits([]);
+    setLocation({ lat: null, lng: null });
+    setLocationUrl('');
   };
 
   if (!isOpen) return null;
@@ -314,6 +351,64 @@ export default function AddProjectModal({ isOpen, onClose, onSave, onSuccess }: 
                     </div>
                   </div>
                 )}
+              </div>
+
+              <div className="rounded-xl border-2 border-slate-300 bg-white p-4">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+                  <div className="flex items-center gap-2">
+                    <MapPin size={18} className="text-teal-700" />
+                    <div className="font-bold text-gray-800">موقع المشروع (اختياري)</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleUseMyLocation}
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-sm font-bold text-slate-800"
+                    >
+                      <LocateFixed size={16} />
+                      موقعي الحالي
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLocation({ lat: null, lng: null })}
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-sm font-bold text-slate-800"
+                    >
+                      مسح الموقع
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700">رابط الموقع (اختياري)</label>
+                    <input
+                      type="text"
+                      value={locationUrl}
+                      onChange={(e) => setLocationUrl(e.target.value)}
+                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-600 outline-none"
+                      placeholder="ضع رابط OpenStreetMap أو Google Maps (اختياري)"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700">الإحداثيات</label>
+                    <div className="w-full p-3 border border-gray-200 rounded-lg bg-gray-50 text-sm font-bold text-gray-800">
+                      {typeof location.lat === 'number' && typeof location.lng === 'number'
+                        ? `${location.lat}, ${location.lng}`
+                        : 'اضغط على الخريطة لتحديد الموقع'}
+                    </div>
+                  </div>
+                </div>
+
+                <OSMLocationPicker
+                  value={location}
+                  onChange={(next) => {
+                    setLocation(next);
+                    if (typeof next.lat === 'number' && typeof next.lng === 'number') {
+                      setLocationUrl((prev) => prev.trim() || buildOSMLink(next.lat as number, next.lng as number));
+                    }
+                  }}
+                  heightClassName="h-72"
+                />
               </div>
             </div>
           )}

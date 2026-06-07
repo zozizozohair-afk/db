@@ -15,6 +15,9 @@ export interface Project {
   status: string;
   hoa_start_date?: string;
   hoa_end_date?: string;
+  location_lat?: number | null;
+  location_lng?: number | null;
+  location_url?: string | null;
 }
 
 export interface Unit {
@@ -70,7 +73,7 @@ export interface ProjectDocument {
   created_at: string;
   project_id: string;
   title: string;
-  type: 'license' | 'guarantee' | 'occupancy' | 'wafi' | 'val' | 'other' | 'project_plan' | 'architectural_plan' | 'autocad';
+  type: 'license' | 'guarantee' | 'occupancy' | 'wafi' | 'val' | 'other' | 'project_plan' | 'architectural_plan' | 'autocad' | 'gallery';
   file_url: string;
   file_path: string;
 }
@@ -99,7 +102,19 @@ export interface UnitModel {
   project_id: string;
   name: string;
   description?: string;
+  location_url?: string | null;
   files: UnitModelFile[];
+}
+
+export interface UnitModelAsset {
+  id: string;
+  created_at: string;
+  model_id: string;
+  project_id: string;
+  kind: 'image' | 'video' | 'file';
+  title?: string | null;
+  file_url: string;
+  file_path: string;
 }
 
 export interface UnitContract {
@@ -205,6 +220,7 @@ export type CrmTask = {
   updated_at?: string | null;
   completed_at?: string | null;
   title: string;
+  description?: string | null;
   due_at: string | null;
   status: CrmTaskStatus;
   priority: CrmTaskPriority;

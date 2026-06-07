@@ -14,7 +14,10 @@ create table if not exists public.projects (
   status text default 'active',
   electricity_meters text[] default array[]::text[],
   hoa_start_date date,
-  hoa_end_date date
+  hoa_end_date date,
+  location_lat double precision,
+  location_lng double precision,
+  location_url text
 );
 
 create table if not exists public.units (
@@ -44,7 +47,10 @@ create policy "Allow all access" on public.units for all using (true) with check
 alter table public.projects 
 add column if not exists electricity_meters text[] default array[]::text[],
 add column if not exists hoa_start_date date,
-add column if not exists hoa_end_date date;
+add column if not exists hoa_end_date date,
+add column if not exists location_lat double precision,
+add column if not exists location_lng double precision,
+add column if not exists location_url text;
 
 update public.projects 
 set electricity_meters = array[electricity_meter] 
@@ -76,6 +82,27 @@ create table if not exists public.unit_models (
 alter table public.unit_models enable row level security;
 drop policy if exists "Allow all access for unit_models" on public.unit_models;
 create policy "Allow all access for unit_models" on public.unit_models for all using (true) with check (true);
+
+alter table public.unit_models
+add column if not exists location_url text;
+
+create table if not exists public.unit_model_assets (
+  id uuid default gen_random_uuid() primary key,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  model_id uuid references public.unit_models(id) on delete cascade not null,
+  project_id uuid references public.projects(id) on delete cascade not null,
+  kind text not null check (kind in ('image', 'video', 'file')),
+  title text,
+  file_url text not null,
+  file_path text not null
+);
+
+create index if not exists unit_model_assets_model_id_created_at_idx on public.unit_model_assets (model_id, created_at desc);
+create index if not exists unit_model_assets_project_id_created_at_idx on public.unit_model_assets (project_id, created_at desc);
+
+alter table public.unit_model_assets enable row level security;
+drop policy if exists "Allow all access for unit_model_assets" on public.unit_model_assets;
+create policy "Allow all access for unit_model_assets" on public.unit_model_assets for all using (true) with check (true);
 
 alter table public.units 
 add column if not exists title_deed_owner text,

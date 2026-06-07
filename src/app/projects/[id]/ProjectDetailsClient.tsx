@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { supabase } from '../../../lib/supabaseClient';
 import { Project } from '../../../types';
 import ProjectSettings from '../../../components/ProjectSettings';
@@ -9,6 +10,7 @@ import UnitsExcelView from '../../../components/UnitsExcelView';
 import ProjectPlansManager from '../../../components/ProjectPlansManager';
 import ProjectFilesSender from '../../../components/ProjectFilesSender';
 import UnitCard from '../../../components/UnitCard';
+import FilePreviewModal from '../../../components/FilePreviewModal';
 import { generateUnitsLogic } from '../../../utils/projectLogic';
 import { 
   Building2, 
@@ -26,26 +28,123 @@ import {
   Trash2,
   Loader2,
   Edit,
-  Share2
+  Share2,
+  LocateFixed,
+  Copy,
+  Image as ImageIcon,
+  Upload,
+  Trash
 } from 'lucide-react';
 import Link from 'next/link';
+
+const OSMLocationPicker = dynamic(() => import('../../../components/OSMLocationPicker'), { ssr: false });
 
 export default function ProjectDetails({ id }: { id: string }) {
   
   const [project, setProject] = useState<Project | null>(null);
   const [units, setUnits] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'units' | 'files' | 'settings' | 'edit_basic' | 'send_files'>('units');
+  const [activeTab, setActiveTab] = useState<'units' | 'models' | 'files' | 'gallery' | 'settings' | 'edit_basic' | 'send_files'>('units');
   const [isExcelMode, setIsExcelMode] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [galleryItems, setGalleryItems] = useState<
+    Array<{ id: string; created_at: string; title: string; type: string; file_url: string; file_path: string }>
+  >([]);
+  const [loadingGallery, setLoadingGallery] = useState(false);
+  const [uploadingGallery, setUploadingGallery] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
   // Edit Basic Data State
   const [editBasicData, setEditBasicData] = useState({
     project_number: '',
     orientation: 'North' as 'North' | 'South' | 'East' | 'West',
-    deed_number: ''
+    deed_number: '',
+    location_lat: null as number | null,
+    location_lng: null as number | null,
+    location_url: ''
   });
   const [isSavingBasic, setIsSavingBasic] = useState(false);
+
+  const buildOSMLink = (lat: number, lng: number) =>
+    `https://www.openstreetmap.org/?mlat=${encodeURIComponent(lat)}&mlon=${encodeURIComponent(lng)}#map=18/${encodeURIComponent(
+      lat
+    )}/${encodeURIComponent(lng)}`;
+
+  const buildGoogleMapsNavLink = (lat: number, lng: number) =>
+    `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(lat)},${encodeURIComponent(lng)}`;
+
+  const isGoogleMapsUrl = (url: string) => /google\.[a-z.]+\/maps|goo\.gl\/maps|maps\.app\.goo\.gl/i.test(url);
+
+  const fetchGallery = async () => {
+    if (!id) return;
+    try {
+      setLoadingGallery(true);
+      const { data, error } = await supabase
+        .from('project_documents')
+        .select('id, created_at, title, type, file_url, file_path')
+        .eq('project_id', id)
+        .eq('type', 'gallery')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      setGalleryItems((data as any[]) || []);
+    } catch (e) {
+      setGalleryItems([]);
+    } finally {
+      setLoadingGallery(false);
+    }
+  };
+
+  const safeExt = (name: string) => {
+    const raw = name.split('.').pop() || '';
+    const ext = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
+    return ext || 'jpg';
+  };
+
+  const handleGalleryFiles = async (files: File[]) => {
+    if (!id) return;
+    if (files.length === 0) return;
+    try {
+      setUploadingGallery(true);
+      for (const file of files) {
+        const ext = safeExt(file.name);
+        const filePath = `${id}/gallery/${Date.now()}_${Math.random().toString(16).slice(2)}.${ext}`;
+        const { error: uploadError } = await supabase.storage.from('project-files').upload(filePath, file);
+        if (uploadError) throw uploadError;
+        const { data: pub } = supabase.storage.from('project-files').getPublicUrl(filePath);
+        const fileUrl = pub?.publicUrl;
+        const { error: dbError } = await supabase.from('project_documents').insert({
+          project_id: id,
+          title: file.name,
+          type: 'gallery',
+          file_path: filePath,
+          file_url: fileUrl
+        });
+        if (dbError) throw dbError;
+      }
+      await fetchGallery();
+    } catch (e: any) {
+      alert(e?.message || 'تعذر رفع الصور');
+    } finally {
+      setUploadingGallery(false);
+      if (galleryInputRef.current) galleryInputRef.current.value = '';
+    }
+  };
+
+  const handleDeleteGalleryItem = async (docId: string, filePath: string) => {
+    if (!confirm('هل تريد حذف الصورة؟')) return;
+    try {
+      await supabase.storage.from('project-files').remove([filePath]);
+      await supabase.from('project_documents').delete().eq('id', docId);
+      setGalleryItems((prev) => prev.filter((x) => x.id !== docId));
+    } catch (e: any) {
+      alert(e?.message || 'تعذر حذف الصورة');
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'gallery') fetchGallery();
+  }, [activeTab, id]);
 
   const fetchProjectDetails = async () => {
     try {
@@ -63,7 +162,10 @@ export default function ProjectDetails({ id }: { id: string }) {
       setEditBasicData({
         project_number: projectData.project_number,
         orientation: projectData.orientation as any,
-        deed_number: projectData.deed_number || ''
+        deed_number: projectData.deed_number || '',
+        location_lat: typeof projectData.location_lat === 'number' ? projectData.location_lat : null,
+        location_lng: typeof projectData.location_lng === 'number' ? projectData.location_lng : null,
+        location_url: projectData.location_url || ''
       });
 
       // 2. Fetch Units
@@ -91,6 +193,10 @@ export default function ProjectDetails({ id }: { id: string }) {
       const oldOrientation = project.orientation;
       const newOrientation = editBasicData.orientation;
       const isOrientationChanged = oldOrientation !== newOrientation;
+      const hasCoords = typeof editBasicData.location_lat === 'number' && typeof editBasicData.location_lng === 'number';
+      const finalLocationUrl =
+        editBasicData.location_url.trim() ||
+        (hasCoords ? buildOSMLink(editBasicData.location_lat as number, editBasicData.location_lng as number) : null);
 
       // 1. Update Project
       const { error: updateError } = await supabase
@@ -98,7 +204,10 @@ export default function ProjectDetails({ id }: { id: string }) {
         .update({
           project_number: editBasicData.project_number,
           orientation: newOrientation,
-          deed_number: editBasicData.deed_number
+          deed_number: editBasicData.deed_number,
+          location_lat: hasCoords ? editBasicData.location_lat : null,
+          location_lng: hasCoords ? editBasicData.location_lng : null,
+          location_url: finalLocationUrl
         })
         .eq('id', id);
 
@@ -243,6 +352,117 @@ export default function ProjectDetails({ id }: { id: string }) {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+          <div className="p-6">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <MapPin size={18} className="text-teal-700" />
+                  <div className="text-lg font-extrabold text-gray-900">موقع المشروع</div>
+                </div>
+                <div className="mt-1 text-sm text-gray-600 font-bold truncate">
+                  {typeof project.location_lat === 'number' && typeof project.location_lng === 'number'
+                    ? `${project.location_lat}, ${project.location_lng}`
+                    : 'لا يوجد موقع محفوظ لهذا المشروع'}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {(() => {
+                  const hasCoords = typeof project.location_lat === 'number' && typeof project.location_lng === 'number';
+                  const savedUrl = (project.location_url || '').trim();
+                  const primaryUrl = savedUrl || (hasCoords ? buildGoogleMapsNavLink(project.location_lat as number, project.location_lng as number) : '');
+                  const googleUrl =
+                    savedUrl && isGoogleMapsUrl(savedUrl)
+                      ? savedUrl
+                      : hasCoords
+                        ? buildGoogleMapsNavLink(project.location_lat as number, project.location_lng as number)
+                        : '';
+                  const shareUrl = primaryUrl || googleUrl;
+
+                  return (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!googleUrl) {
+                            setActiveTab('edit_basic');
+                            return;
+                          }
+                          window.open(googleUrl, '_blank', 'noopener,noreferrer');
+                        }}
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-teal-950 bg-gradient-to-l from-emerald-900 via-teal-900 to-blue-900 text-white text-sm font-extrabold hover:from-emerald-950 hover:via-teal-950 hover:to-blue-950 transition-colors"
+                      >
+                        <Share2 size={16} />
+                        تنقّل عبر Google
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!shareUrl) {
+                            setActiveTab('edit_basic');
+                            return;
+                          }
+                          try {
+                            await navigator.clipboard.writeText(shareUrl);
+                            alert('تم نسخ رابط الموقع');
+                          } catch {
+                            alert('تعذر نسخ الرابط');
+                          }
+                        }}
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-sm font-extrabold text-slate-800"
+                      >
+                        <Copy size={16} />
+                        نسخ الرابط
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!shareUrl) {
+                            setActiveTab('edit_basic');
+                            return;
+                          }
+                          const text = `موقع المشروع: ${shareUrl}`;
+                          window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
+                        }}
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-sm font-extrabold text-slate-800"
+                      >
+                        <Share2 size={16} />
+                        إرسال واتساب
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('edit_basic')}
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-sm font-extrabold text-slate-800"
+                      >
+                        <Edit size={16} />
+                        تعديل الموقع
+                      </button>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+
+            {typeof project.location_lat === 'number' && typeof project.location_lng === 'number' ? (
+              <OSMLocationPicker
+                value={{ lat: project.location_lat, lng: project.location_lng }}
+                onChange={() => {}}
+                readOnly
+                heightClassName="h-80"
+              />
+            ) : (
+              <div className="rounded-md border-2 border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+                <div className="text-sm font-extrabold text-slate-800">لم يتم تحديد موقع المشروع بعد</div>
+                <div className="mt-1 text-xs font-bold text-slate-600">اضغط تعديل الموقع لإضافة الإحداثيات والرابط</div>
+              </div>
+            )}
+          </div>
+        </div>
         
         {/* Project Info Card */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
@@ -339,6 +559,17 @@ export default function ProjectDetails({ id }: { id: string }) {
               وحدات المشروع
             </button>
             <button
+              onClick={() => setActiveTab('models')}
+              className={`pb-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${
+                activeTab === 'models'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Layers size={18} />
+              نماذج الوحدات
+            </button>
+            <button
               onClick={() => setActiveTab('files')}
               className={`pb-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${
                 activeTab === 'files'
@@ -348,6 +579,17 @@ export default function ProjectDetails({ id }: { id: string }) {
             >
               <FolderOpen size={18} />
               الملفات والمستندات
+            </button>
+            <button
+              onClick={() => setActiveTab('gallery')}
+              className={`pb-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${
+                activeTab === 'gallery'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <ImageIcon size={18} />
+              مكتبة الصور
             </button>
             <button
               onClick={() => setActiveTab('send_files')}
@@ -442,6 +684,92 @@ export default function ProjectDetails({ id }: { id: string }) {
                 </p>
               </div>
 
+              <div className="rounded-xl border-2 border-slate-300 bg-white p-4">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+                  <div className="flex items-center gap-2">
+                    <MapPin size={18} className="text-teal-700" />
+                    <div className="font-bold text-gray-800">موقع المشروع</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!navigator.geolocation) {
+                          alert('ميزة تحديد الموقع غير مدعومة في هذا المتصفح');
+                          return;
+                        }
+                        navigator.geolocation.getCurrentPosition(
+                          (pos) => {
+                            const lat = Number(pos.coords.latitude.toFixed(6));
+                            const lng = Number(pos.coords.longitude.toFixed(6));
+                            setEditBasicData((prev) => ({
+                              ...prev,
+                              location_lat: lat,
+                              location_lng: lng,
+                              location_url: prev.location_url.trim() || buildOSMLink(lat, lng)
+                            }));
+                          },
+                          () => alert('تعذر الحصول على موقعك الحالي'),
+                          { enableHighAccuracy: true, timeout: 10000 }
+                        );
+                      }}
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-sm font-bold text-slate-800"
+                    >
+                      <LocateFixed size={16} />
+                      موقعي الحالي
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEditBasicData((prev) => ({ ...prev, location_lat: null, location_lng: null, location_url: prev.location_url }))
+                      }
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-sm font-bold text-slate-800"
+                    >
+                      مسح الإحداثيات
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700">رابط الموقع (اختياري)</label>
+                    <input
+                      type="text"
+                      value={editBasicData.location_url}
+                      onChange={(e) => setEditBasicData({ ...editBasicData, location_url: e.target.value })}
+                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-600 outline-none"
+                      placeholder="ضع رابط OpenStreetMap أو Google Maps"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700">الإحداثيات</label>
+                    <div className="w-full p-3 border border-gray-200 rounded-lg bg-gray-50 text-sm font-bold text-gray-800">
+                      {typeof editBasicData.location_lat === 'number' && typeof editBasicData.location_lng === 'number'
+                        ? `${editBasicData.location_lat}, ${editBasicData.location_lng}`
+                        : 'اضغط على الخريطة لتحديد الموقع'}
+                    </div>
+                  </div>
+                </div>
+
+                <OSMLocationPicker
+                  value={{ lat: editBasicData.location_lat, lng: editBasicData.location_lng }}
+                  onChange={(next) => {
+                    setEditBasicData((prev) => {
+                      const hasCoords = typeof next.lat === 'number' && typeof next.lng === 'number';
+                      return {
+                        ...prev,
+                        location_lat: hasCoords ? (next.lat as number) : null,
+                        location_lng: hasCoords ? (next.lng as number) : null,
+                        location_url:
+                          prev.location_url.trim() ||
+                          (hasCoords ? buildOSMLink(next.lat as number, next.lng as number) : prev.location_url)
+                      };
+                    });
+                  }}
+                  heightClassName="h-72"
+                />
+              </div>
+
               <div className="pt-4 flex justify-end gap-3">
                 <button
                   onClick={() => setActiveTab('units')}
@@ -459,6 +787,74 @@ export default function ProjectDetails({ id }: { id: string }) {
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {activeTab === 'gallery' && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+              <div className="flex items-center gap-2">
+                <ImageIcon size={20} className="text-blue-600" />
+                <div className="text-lg font-extrabold text-gray-900">مكتبة الصور</div>
+                <div className="text-sm font-bold text-gray-500">({galleryItems.length})</div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  ref={galleryInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(e) => handleGalleryFiles(Array.from(e.target.files || []))}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => galleryInputRef.current?.click()}
+                  disabled={uploadingGallery}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-sm font-extrabold text-slate-800 disabled:opacity-50"
+                >
+                  <Upload size={16} />
+                  {uploadingGallery ? 'جارٍ الرفع...' : 'رفع صور'}
+                </button>
+              </div>
+            </div>
+
+            {loadingGallery ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                {Array.from({ length: 10 }).map((_, i) => (
+                  <div key={i} className="aspect-square rounded-md border border-slate-200 bg-slate-100 animate-pulse" />
+                ))}
+              </div>
+            ) : galleryItems.length === 0 ? (
+              <div className="rounded-md border-2 border-dashed border-slate-300 bg-slate-50 p-8 text-center">
+                <div className="text-sm font-extrabold text-slate-800">لا توجد صور للمشروع</div>
+                <div className="mt-1 text-xs font-bold text-slate-600">اضغط “رفع صور” لإضافة صور للمشروع</div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                {galleryItems.map((img) => (
+                  <div key={img.id} className="group relative overflow-hidden rounded-md border-2 border-slate-300 bg-white">
+                    <button type="button" onClick={() => setPreviewUrl(img.file_url)} className="block w-full">
+                      <img src={img.file_url} alt={img.title} className="aspect-square w-full object-cover" />
+                    </button>
+                    <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/70 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-[11px] font-extrabold text-white truncate">{img.title}</div>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteGalleryItem(img.id, img.file_path)}
+                          className="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-md bg-white/10 hover:bg-white/20 text-white"
+                          title="حذف"
+                        >
+                          <Trash size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -553,9 +949,10 @@ export default function ProjectDetails({ id }: { id: string }) {
               </div>
             )}
             
-            <ProjectPlansManager projectId={project.id} />
           </div>
         )}
+
+        {activeTab === 'models' && <ProjectPlansManager projectId={project.id} mode="modelsOnly" />}
 
         {activeTab === 'files' && (
           <ProjectFileManager projectId={project.id} />
@@ -570,6 +967,8 @@ export default function ProjectDetails({ id }: { id: string }) {
         )}
 
       </main>
+
+      <FilePreviewModal url={previewUrl} onClose={() => setPreviewUrl(null)} />
     </div>
   );
 }

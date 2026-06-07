@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '../lib/supabaseClient';
 import { ProjectDocument, UnitModel, UnitModelFile, DOCUMENT_TYPES } from '../types';
-import { Upload, FileText, Image as ImageIcon, Trash2, Plus, X, FileCode, Loader2, Download, ExternalLink, Box, LayoutTemplate, Save } from 'lucide-react';
+import { Upload, FileText, Image as ImageIcon, Trash2, Plus, X, FileCode, Loader2, Download, ExternalLink, Box, LayoutTemplate, Save, ArrowRight } from 'lucide-react';
 
 interface ProjectPlansManagerProps {
   projectId: string;
+  mode?: 'all' | 'modelsOnly';
 }
 
-export default function ProjectPlansManager({ projectId }: ProjectPlansManagerProps) {
-  const [activeTab, setActiveTab] = useState<'plans' | 'models'>('plans');
+export default function ProjectPlansManager({ projectId, mode = 'all' }: ProjectPlansManagerProps) {
+  const router = useRouter();
+  const [activeTab, setActiveTab] = useState<'plans' | 'models'>(mode === 'modelsOnly' ? 'models' : 'plans');
   
   // Plans State
   const [plans, setPlans] = useState<ProjectDocument[]>([]);
@@ -34,6 +37,10 @@ export default function ProjectPlansManager({ projectId }: ProjectPlansManagerPr
       fetchModels();
     }
   }, [projectId]);
+
+  useEffect(() => {
+    setActiveTab(mode === 'modelsOnly' ? 'models' : 'plans');
+  }, [mode]);
 
   const fetchPlans = async () => {
     setLoadingPlans(true);
@@ -86,6 +93,29 @@ export default function ProjectPlansManager({ projectId }: ProjectPlansManagerPr
       console.error('Error fetching models/directions:', error);
     } finally {
       setLoadingModels(false);
+    }
+  };
+
+  const ensureModel = async (direction: string) => {
+    const existing = models.find((m) => m.name === direction);
+    if (existing) return existing;
+    const { data, error } = await supabase
+      .from('unit_models')
+      .insert({ project_id: projectId, name: direction, files: [] })
+      .select('*')
+      .single();
+    if (error) throw error;
+    const created = data as any as UnitModel;
+    setModels((prev) => [...prev, created]);
+    return created;
+  };
+
+  const openModelPage = async (direction: string) => {
+    try {
+      const m = await ensureModel(direction);
+      router.push(`/projects/${projectId}/models/${m.id}`);
+    } catch (e: any) {
+      alert(e?.message || 'تعذر فتح النموذج');
     }
   };
 
@@ -337,29 +367,38 @@ export default function ProjectPlansManager({ projectId }: ProjectPlansManagerPr
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 mt-8 p-6" dir="rtl">
-      <div className="flex items-center gap-2 mb-6 border-b border-gray-200 pb-4">
-        <LayoutTemplate className="text-blue-600" size={24} />
-        <h2 className="text-xl font-bold text-gray-900">إدارة المخططات والنماذج</h2>
-      </div>
+      {mode === 'all' ? (
+        <div className="flex items-center gap-2 mb-6 border-b border-gray-200 pb-4">
+          <LayoutTemplate className="text-blue-600" size={24} />
+          <h2 className="text-xl font-bold text-gray-900">إدارة المخططات والنماذج</h2>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 mb-6 border-b border-gray-200 pb-4">
+          <Box className="text-orange-600" size={24} />
+          <h2 className="text-xl font-bold text-gray-900">نماذج الوحدات</h2>
+        </div>
+      )}
 
-      <div className="flex gap-4 mb-6">
-        <button
-          onClick={() => setActiveTab('plans')}
-          className={`flex-1 py-3 px-4 rounded-lg font-bold transition-all flex items-center justify-center gap-2
-            ${activeTab === 'plans' ? 'bg-blue-50 text-blue-700 border-2 border-blue-200' : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100'}`}
-        >
-          <FileCode size={20} />
-          مخططات المشروع
-        </button>
-        <button
-          onClick={() => setActiveTab('models')}
-          className={`flex-1 py-3 px-4 rounded-lg font-bold transition-all flex items-center justify-center gap-2
-            ${activeTab === 'models' ? 'bg-orange-50 text-orange-700 border-2 border-orange-200' : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100'}`}
-        >
-          <Box size={20} />
-          نماذج الوحدات
-        </button>
-      </div>
+      {mode === 'all' ? (
+        <div className="flex gap-4 mb-6">
+          <button
+            onClick={() => setActiveTab('plans')}
+            className={`flex-1 py-3 px-4 rounded-lg font-bold transition-all flex items-center justify-center gap-2
+              ${activeTab === 'plans' ? 'bg-blue-50 text-blue-700 border-2 border-blue-200' : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100'}`}
+          >
+            <FileCode size={20} />
+            مخططات المشروع
+          </button>
+          <button
+            onClick={() => setActiveTab('models')}
+            className={`flex-1 py-3 px-4 rounded-lg font-bold transition-all flex items-center justify-center gap-2
+              ${activeTab === 'models' ? 'bg-orange-50 text-orange-700 border-2 border-orange-200' : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100'}`}
+          >
+            <Box size={20} />
+            نماذج الوحدات
+          </button>
+        </div>
+      ) : null}
 
       {activeTab === 'plans' && (
         <div className="space-y-6">
@@ -473,6 +512,7 @@ export default function ProjectPlansManager({ projectId }: ProjectPlansManagerPr
                 const model = models.find(m => m.name === direction);
                 const isEditing = editingDirection === direction;
                 const files = model?.files || [];
+                const coverUrl = files.find((f) => f.type === 'image')?.url || null;
 
                 return (
                   <div 
@@ -483,7 +523,15 @@ export default function ProjectPlansManager({ projectId }: ProjectPlansManagerPr
                         : 'border-gray-200 hover:shadow-lg'
                     }`}
                   >
-                    <div className={`p-4 border-b flex justify-between items-center rounded-t-xl ${isEditing ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-100'}`}>
+                    <div className={`border-b flex justify-between items-stretch rounded-t-xl overflow-hidden ${isEditing ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-100'}`}>
+                      <div className="relative w-28 sm:w-32 shrink-0 border-l border-gray-100 bg-slate-100">
+                        {coverUrl ? <img src={coverUrl} alt={direction} className="absolute inset-0 w-full h-full object-cover" /> : null}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/10 to-transparent" />
+                        <div className="absolute bottom-0 right-0 left-0 p-2">
+                          <div className="text-white text-[11px] font-extrabold truncate">{direction}</div>
+                        </div>
+                      </div>
+                      <div className="p-4 flex-1 flex justify-between items-center gap-3">
                       <div className="flex flex-col gap-1">
                         {!isEditing ? (
                           <>
@@ -507,18 +555,28 @@ export default function ProjectPlansManager({ projectId }: ProjectPlansManagerPr
                         )}
                       </div>
                       {!isEditing ? (
-                        <button 
-                          onClick={() => openModelEditor(direction)}
-                          className="text-orange-600 hover:text-orange-700 hover:bg-orange-50 px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors"
-                        >
-                          <Box size={16} />
-                          إدارة النموذج
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => openModelPage(direction)}
+                            className="text-gray-700 hover:text-gray-900 hover:bg-white px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors border border-gray-200 bg-white"
+                          >
+                            <ArrowRight size={16} className="rotate-180" />
+                            فتح
+                          </button>
+                          <button 
+                            onClick={() => openModelEditor(direction)}
+                            className="text-orange-600 hover:text-orange-700 hover:bg-orange-50 px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors"
+                          >
+                            <Box size={16} />
+                            إدارة
+                          </button>
+                        </div>
                       ) : (
                         <button onClick={() => setEditingDirection(null)} className="text-gray-500 hover:text-gray-700 p-1 hover:bg-gray-200 rounded-full">
                           <X size={20} />
                         </button>
                       )}
+                      </div>
                     </div>
 
                     <div className="p-4">

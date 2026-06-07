@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BarChart3, CheckCircle2, Circle, ClipboardList, Plus, Search, Users, X } from 'lucide-react';
+import { BarChart3, CheckCircle2, Circle, ClipboardList, Plus, Search, Trash2, Users, X } from 'lucide-react';
 import { supabase } from '../../../lib/supabaseClient';
 import type { Client, CrmTask } from '../../../types';
 
@@ -60,7 +60,7 @@ export default function CrmTasksPage() {
     try {
       let q = supabase
         .from('crm_tasks')
-        .select('id, created_at, client_id, unit_id, assigned_to, title, due_at, status, priority, client:clients(id, name, phone)')
+        .select('id, created_at, client_id, unit_id, assigned_to, title, description, due_at, status, priority, client:clients(id, name, phone)')
         .order('created_at', { ascending: false });
 
       if (p.role !== 'admin' && p.role !== 'manager') {
@@ -120,7 +120,8 @@ export default function CrmTasksPage() {
       const clientName = (t.client?.name || '').toLowerCase();
       const clientPhone = (t.client?.phone || '').toLowerCase();
       const title = (t.title || '').toLowerCase();
-      return title.includes(q) || clientName.includes(q) || clientPhone.includes(q);
+      const desc = String((t as any)?.description || '').toLowerCase();
+      return title.includes(q) || desc.includes(q) || clientName.includes(q) || clientPhone.includes(q);
     });
   }, [searchQuery, statusFilter, tasks]);
 
@@ -149,6 +150,19 @@ export default function CrmTasksPage() {
     }
   };
 
+  const deleteTask = async (task: TaskRow) => {
+    if (!isAdmin) return;
+    const ok = window.confirm('هل أنت متأكد من حذف المهمة نهائيًا؟ لن تظهر في التقارير بعد الحذف.');
+    if (!ok) return;
+    try {
+      const { error } = await supabase.from('crm_tasks').delete().eq('id', task.id);
+      if (error) throw error;
+      setTasks((prev) => prev.filter((t) => t.id !== task.id));
+    } catch (e: any) {
+      alert(e?.message || 'تعذر حذف المهمة');
+    }
+  };
+
   const statusBadge = (s: CrmTask['status']) => {
     return s === 'done' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700';
   };
@@ -170,13 +184,30 @@ export default function CrmTasksPage() {
   const isCustomerService = role === 'customer_service' || role === 'staff';
   const isMarketing = role === 'marketing';
 
+  const assigneeStorageKey = useMemo(() => (userId ? `crm:last_assignee:${userId}` : null), [userId]);
+  const readStoredAssignee = () => {
+    if (!assigneeStorageKey) return null;
+    try {
+      const v = localStorage.getItem(assigneeStorageKey);
+      return v ? v : null;
+    } catch {
+      return null;
+    }
+  };
+  const writeStoredAssignee = (id: string) => {
+    if (!assigneeStorageKey) return;
+    try {
+      localStorage.setItem(assigneeStorageKey, id);
+    } catch {}
+  };
+
   const allowedAssignees = useMemo(() => {
     const active = employees.filter((e) => e.is_active);
     const self = active.find((e) => e.id === userId) || { id: userId || '', email: null, job_title: null, role, is_active: true };
 
     if (!userId) return [];
     if (canAssignAny) return active;
-    if (isMarketing) return [self, ...active.filter((e) => e.role === 'customer_service' && e.id !== userId)];
+    if (isMarketing) return [self, ...active.filter((e) => (e.role === 'customer_service' || e.role === 'staff') && e.id !== userId)];
     if (isCustomerService) return [self];
     return [self];
   }, [canAssignAny, employees, isCustomerService, isMarketing, role, userId]);
@@ -194,7 +225,13 @@ export default function CrmTasksPage() {
       setFormAssigneeId(userId);
     } else {
       setFormGeneral(false);
-      setFormAssigneeId(userId || null);
+      const stored = readStoredAssignee();
+      const allowed = new Set(allowedAssignees.map((e) => e.id));
+      if (stored && allowed.has(stored)) {
+        setFormAssigneeId(stored);
+      } else {
+        setFormAssigneeId(userId || null);
+      }
     }
 
     setIsAddOpen(true);
@@ -247,6 +284,7 @@ export default function CrmTasksPage() {
       };
       const { error } = await supabase.from('crm_tasks').insert([payload]);
       if (error) throw error;
+      if (finalAssignedTo) writeStoredAssignee(finalAssignedTo);
       setIsAddOpen(false);
       await fetchTasks({ userId, role });
     } catch (e: any) {
@@ -385,6 +423,7 @@ export default function CrmTasksPage() {
                     </td>
                     <td className="px-4 py-3 min-w-[260px]">
                       <div className="font-bold text-gray-900 truncate">{t.title}</div>
+                      {t.description ? <div className="text-xs text-gray-600 mt-1 whitespace-pre-wrap">{t.description}</div> : null}
                       <div className="text-xs text-gray-500 mt-1">تم الإنشاء: {new Date(t.created_at).toLocaleString('ar-SA')}</div>
                     </td>
                     <td className="px-4 py-3 min-w-[220px]">
@@ -407,24 +446,35 @@ export default function CrmTasksPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-left whitespace-nowrap">
-                      <button
-                        onClick={() => toggle(t)}
-                        className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold transition-colors ${
-                          t.status === 'done' ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' : 'bg-green-600 text-white hover:bg-green-700'
-                        }`}
-                      >
-                        {t.status === 'done' ? (
-                          <>
-                            <Circle size={16} />
-                            إعادة فتح
-                          </>
-                        ) : (
-                          <>
-                            <CheckCircle2 size={16} />
-                            تمت
-                          </>
-                        )}
-                      </button>
+                      <div className="inline-flex items-center gap-2">
+                        <button
+                          onClick={() => toggle(t)}
+                          className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold transition-colors ${
+                            t.status === 'done' ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' : 'bg-green-600 text-white hover:bg-green-700'
+                          }`}
+                        >
+                          {t.status === 'done' ? (
+                            <>
+                              <Circle size={16} />
+                              إعادة فتح
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 size={16} />
+                              تمت
+                            </>
+                          )}
+                        </button>
+                        {isAdmin ? (
+                          <button
+                            onClick={() => deleteTask(t)}
+                            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold bg-red-50 text-red-700 border border-red-200 hover:bg-red-100"
+                          >
+                            <Trash2 size={16} />
+                            حذف
+                          </button>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -528,7 +578,11 @@ export default function CrmTasksPage() {
                   <div className="text-sm font-bold text-gray-800">إسناد إلى موظف</div>
                   <select
                     value={formAssigneeId || ''}
-                    onChange={(e) => setFormAssigneeId(e.target.value || null)}
+                    onChange={(e) => {
+                      const v = e.target.value || null;
+                      setFormAssigneeId(v);
+                      if (v) writeStoredAssignee(v);
+                    }}
                     disabled={formGeneral || isCustomerService}
                     className={`w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-white focus:ring-2 focus:ring-blue-500 outline-none ${
                       formGeneral || isCustomerService ? 'opacity-60' : ''

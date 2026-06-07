@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -77,6 +77,7 @@ export default function CrmDashboardPage() {
   const [contactOpen, setContactOpen] = useState(false);
   const [contactClient, setContactClient] = useState<ClientRow | null>(null);
   const [contactUnitId, setContactUnitId] = useState<string | null>(null);
+  const [contactUnitIds, setContactUnitIds] = useState<string[]>([]);
   const [contactChannel, setContactChannel] = useState<'call' | 'whatsapp' | 'email'>('call');
   const [contactNote, setContactNote] = useState('');
   const [contactNextAt, setContactNextAt] = useState('');
@@ -86,10 +87,47 @@ export default function CrmDashboardPage() {
   const [contactSaving, setContactSaving] = useState(false);
   const [contactError, setContactError] = useState<string | null>(null);
 
-  const APPOINTMENT_WITH_OPTIONS = useMemo(
+  const [waMode, setWaMode] = useState<'template' | 'custom'>('template');
+  const [waMessageType, setWaMessageType] = useState<'deed_transfer' | 'resale_contract' | 'payment_reminder' | 'meter_transfer' | null>(null);
+  const [waCopied, setWaCopied] = useState(false);
+  const [waCustomText, setWaCustomText] = useState('');
+
+  const DEFAULT_APPOINTMENT_WITH_OPTIONS = useMemo(
     () => ['ابو شموخ', 'ابو سند', 'ابو لينا', 'ابو سعد', 'عصام', 'زهير', 'ندا'],
     []
   );
+  const [appointmentWithOptions, setAppointmentWithOptions] = useState<string[]>(DEFAULT_APPOINTMENT_WITH_OPTIONS);
+  const appointmentWithOptionsLoadedRef = useRef(false);
+
+  const loadAppointmentWithOptions = async (force = false) => {
+    if (!force && appointmentWithOptionsLoadedRef.current) return;
+    appointmentWithOptionsLoadedRef.current = true;
+    try {
+      const res = await supabase.from('crm_appointment_hosts').select('name').order('name', { ascending: true });
+      if (res.error) {
+        const msg = String(res.error.message || '').toLowerCase();
+        if (msg.includes('does not exist') || msg.includes('relation') || msg.includes('not exist')) return;
+        return;
+      }
+      const names = ((res.data as any[]) || []).map((r) => String(r?.name || '').trim()).filter(Boolean);
+      if (names.length > 0) setAppointmentWithOptions(names);
+    } catch {}
+  };
+
+  const seedAppointmentWithOptions = async () => {
+    try {
+      const res = await supabase
+        .from('crm_appointment_hosts')
+        .upsert(
+          DEFAULT_APPOINTMENT_WITH_OPTIONS.map((name) => ({ name })),
+          { onConflict: 'name', ignoreDuplicates: true }
+        );
+      if (res.error) {
+        const msg = String(res.error.message || '').toLowerCase();
+        if (msg.includes('does not exist') || msg.includes('relation') || msg.includes('not exist')) return;
+      }
+    } catch {}
+  };
 
   const toLocalInput = (d: Date) => {
     const tz = d.getTimezoneOffset() * 60_000;
@@ -118,6 +156,8 @@ export default function CrmDashboardPage() {
       setIsAdmin(nextRole === 'admin');
       setWorkFilter(inferDefaultWorkFilter({ userId: user.id, role: nextRole }));
       await fetchData({ userId: user.id, role: nextRole });
+      await seedAppointmentWithOptions();
+      await loadAppointmentWithOptions();
     };
     run();
   }, []);
@@ -541,6 +581,68 @@ export default function CrmDashboardPage() {
     return digits;
   };
 
+  const contactUnitContext = useMemo(() => {
+    if (!contactClient) return null;
+    const list = contactClient.linkedUnits || [];
+    if (!list.length) return null;
+    const preferred = contactUnitIds[0] || contactUnitId;
+    if (preferred) {
+      const found = list.find((u) => u.unit_id === preferred);
+      if (found) return found;
+    }
+    return list[0] || null;
+  }, [contactClient, contactUnitId, contactUnitIds]);
+
+  const buildWaTemplateMessage = () => {
+    if (!contactClient || !waMessageType) return '';
+    const name = contactClient.name || 'عميلنا الكريم';
+    const unitNum = contactUnitContext?.unit_number ?? '';
+    const projectNumber = contactUnitContext?.project_number ?? '';
+    const projectName = contactUnitContext?.project_name ?? '';
+    const unitCode = unitNum && projectNumber ? `${unitNum}-${projectNumber}` : unitNum ? String(unitNum) : projectNumber ? String(projectNumber) : '';
+    const timestamp = new Date().toLocaleString('ar-SA', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    const stampLine = `\n\n_التاريخ والوقت: ${timestamp}_`;
+
+    if (waMessageType === 'deed_transfer') {
+      const unitLine = unitCode ? `مالك الشقة رقم (${unitCode})` : 'مالك الشقة';
+      return `السلام عليكم ورحمة الله وبركاته،\n\nعزيزنا العميل/ة: ${name}\n${unitLine}\n\nتبارك لكم شركة مساكن الرفاهية للتطوير العقاري صدور صك شقتكم، ونتمنى منكم التكرم بالحضور إلى مقر الشركة لعملية إفراغ الصك خلال مدة أقصاها شهر.\n\n📍 موقع الشركة (خرائط Google):\nhttps://maps.app.goo.gl/p15cgtYnbGFR4uBZ6${stampLine}`;
+    }
+
+    if (waMessageType === 'resale_contract') {
+      const unitLine = unitCode ? `وحدتكم رقم (${unitCode})` : 'وحدتكم';
+      const projectLine = projectName ? ` في مشروع (${projectName})` : '';
+      return `السلام عليكم ورحمة الله وبركاته،\n\nعميلنا الكريم: ${name}\n\nنفيدكم بأنه تم تجهيز عقد إعادة البيع الخاص بـ ${unitLine}${projectLine}.\n\nنأمل منكم التكرم بزيارة مقر شركة مساكن الرفاهية للتطوير العقاري لتوقيع العقد واستكمال الإجراءات اللازمة.\n\n📍 موقع الشركة (خرائط Google):\nhttps://maps.app.goo.gl/p15cgtYnbGFR4uBZ6\n\nشاكرين لكم تعاونكم، ونسعد بخدمتكم دائمًا.\n\nشركة مساكن الرفاهية للتطوير العقاري.${stampLine}`;
+    }
+
+    if (waMessageType === 'payment_reminder') {
+      const unitLine = unitCode ? `على وحدتكم رقم (${unitCode})` : 'على وحدتكم';
+      const projectLine = projectName ? ` ضمن مشروع (${projectName})` : '';
+      return `السلام عليكم ورحمة الله وبركاته،\n\nعميلنا الكريم: ${name}\n\nنود إشعاركم بوجود دفعة مستحقة ${unitLine}${projectLine}.\n\nنأمل منكم سرعة السداد لاستكمال الإجراءات وتفادي أي تأخير.\n\nشاكرين لكم حسن تعاونكم وثقتكم.\n\nشركة مساكن الرفاهية للتطوير العقاري.${stampLine}`;
+    }
+
+    const unitLine = unitCode ? `شقتك رقم (${unitCode})` : 'شقتك';
+    return `السلام عليكم ورحمة الله وبركاته،\n\nعزيزنا العميل/ة: ${name}\n\nيرجى نقل عداد ${unitLine}\n\nخطوات النقل:\n1. خش تطبيق الطاقة السعوديه سوي حساب او سجل دخول\n2. دور على شي اسمه اضافه حساب او توثيق ملكيه\n3. حط رقم الحساب سوي بحث\n4. اختر مالك مستفيد\n5. تضهر نافذه يطلب رقم الصك سوي تاكيد مو مهم تحط الصك\n6. سوي اوافق ثم ارسال الطلب\n7. بيعطيك تم ارسال الطلب\n\nملاحظة: صور الشاشه وحتفظ برقم الطلب خلال يوم يكون جاهز.${stampLine}`;
+  };
+
+  const openWhatsAppWithText = (text: string) => {
+    const phone = String(contactClient?.phone || '').trim();
+    if (!phone) {
+      const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+      window.open(url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    const formattedPhone = normalizePhoneForWhatsApp(phone);
+    const url = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(text)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   const openClient = (id: string) => {
     router.push(`/crm/clients/${id}`);
   };
@@ -548,13 +650,23 @@ export default function CrmDashboardPage() {
   const openContact = (p: { client: ClientRow; channel: 'call' | 'whatsapp' | 'email'; unitId?: string | null }) => {
     setContactError(null);
     setContactClient(p.client);
-    setContactUnitId(p.unitId || null);
+    const defaultUnitIds = (() => {
+      const first = p.client.linkedUnits?.[0]?.unit_id || null;
+      const initial = p.unitId || first;
+      return initial ? [initial] : [];
+    })();
+    setContactUnitIds(defaultUnitIds);
+    setContactUnitId(defaultUnitIds[0] || null);
     setContactChannel(p.channel);
     setContactNote('');
     setContactOutcome('completed');
     setAppointmentAt('');
     setAppointmentWith('');
     setContactNextAt(toLocalInput(new Date(Date.now() + 24 * 60 * 60 * 1000)));
+    setWaMode('template');
+    setWaMessageType(null);
+    setWaCopied(false);
+    setWaCustomText('');
     setContactOpen(true);
   };
 
@@ -615,6 +727,11 @@ export default function CrmDashboardPage() {
       setContactError('لم يتم تحديد العميل.');
       return;
     }
+    const clientUnits = (contactClient.linkedUnits || []).map((u) => u.unit_id).filter(Boolean);
+    if (clientUnits.length > 0 && contactUnitIds.length === 0) {
+      setContactError('الرجاء تحديد الشقق المرتبطة بهذا التواصل.');
+      return;
+    }
     if (!contactNote.trim()) {
       setContactError('الرجاء كتابة ملاحظة التواصل.');
       return;
@@ -636,9 +753,11 @@ export default function CrmDashboardPage() {
 
     setContactSaving(true);
     try {
+      let postSaveNotice: string | null = null;
+      const primaryUnitId = contactUnitIds[0] || contactUnitId || null;
       const payload: any = {
         client_id: contactClient.id,
-        unit_id: contactUnitId || null,
+        unit_id: primaryUnitId,
         channel: contactChannel,
         content: contactNote.trim(),
         created_by: userId,
@@ -651,14 +770,36 @@ export default function CrmDashboardPage() {
         payload.appointment_with = appointmentWith;
       }
 
-      const { error: actErr } = await supabase.from('crm_activities').insert([payload]);
+      const { data: insertedActivity, error: actErr } = await supabase
+        .from('crm_activities')
+        .insert([payload])
+        .select('id')
+        .single();
       if (actErr) throw actErr;
+
+      const activityId = insertedActivity?.id;
+      if (activityId && contactUnitIds.length > 0) {
+        const rows = Array.from(new Set(contactUnitIds)).map((unit_id) => ({
+          activity_id: activityId,
+          unit_id
+        }));
+        const { error: linkErr } = await supabase.from('crm_activity_units').insert(rows as any);
+        if (linkErr) {
+          const msg = String(linkErr.message || '');
+          if (msg.toLowerCase().includes('crm_activity_units') || msg.toLowerCase().includes('relation')) {
+            throw new Error(
+              'تم حفظ التواصل لكن تعذر حفظ الشقق المرتبطة. الرجاء إضافة جدول crm_activity_units في قاعدة البيانات.'
+            );
+          }
+          throw linkErr;
+        }
+      }
 
       if (contactOutcome === 'no_answer') {
         const dueAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
         const taskPayload: any = {
           client_id: contactClient.id,
-          unit_id: contactUnitId || null,
+          unit_id: primaryUnitId,
           title: `متابعة (عدم رد): ${contactClient.name}`,
           due_at: dueAt,
           status: 'open',
@@ -669,10 +810,64 @@ export default function CrmDashboardPage() {
         if (taskErr) throw taskErr;
       }
 
+      if (contactOutcome === 'appointment') {
+        const hostName = String(appointmentWith || '').trim();
+        const atIso = new Date(appointmentAt).toISOString();
+        const missingTableMsg = (m: string) => m.includes('does not exist') || m.includes('relation') || m.includes('not exist');
+
+        let hostId: string | null = null;
+        try {
+          const ins = await supabase.from('crm_appointment_hosts').insert([{ name: hostName }]).select('id').single();
+          if (ins.error) {
+            const msg = String(ins.error.message || '').toLowerCase();
+            if (msg.includes('duplicate') || msg.includes('unique')) {
+              const sel = await supabase.from('crm_appointment_hosts').select('id').eq('name', hostName).maybeSingle();
+              if (!sel.error) hostId = (sel.data as any)?.id || null;
+            } else if (missingTableMsg(msg)) {
+              postSaveNotice =
+                'تم حفظ الموعد كسجل تواصل، لكن جدول قائمة أصحاب المواعيد غير موجود (crm_appointment_hosts).';
+            } else {
+              postSaveNotice = ins.error.message || 'تعذر حفظ صاحب الموعد.';
+            }
+          } else {
+            hostId = (ins.data as any)?.id || null;
+          }
+        } catch (e: any) {
+          postSaveNotice = e?.message || 'تعذر حفظ صاحب الموعد.';
+        }
+
+        try {
+          const apptPayload: any = {
+            client_id: contactClient.id,
+            unit_id: primaryUnitId,
+            activity_id: activityId || null,
+            appointment_at: atIso,
+            host_id: hostId,
+            host_name: hostName,
+            created_by: userId
+          };
+          const apptRes = await supabase.from('crm_appointments').insert([apptPayload]);
+          if (apptRes.error) {
+            const msg = String(apptRes.error.message || '').toLowerCase();
+            if (missingTableMsg(msg)) {
+              postSaveNotice = 'تم حفظ الموعد كسجل تواصل، لكن جدول المواعيد غير موجود (crm_appointments).';
+            } else {
+              postSaveNotice = apptRes.error.message || 'تعذر تسجيل الموعد في جدول المواعيد.';
+            }
+          }
+        } catch (e: any) {
+          postSaveNotice = e?.message || 'تعذر تسجيل الموعد في جدول المواعيد.';
+        }
+
+        await loadAppointmentWithOptions(true);
+      }
+
       setContactOpen(false);
       setContactClient(null);
       setContactUnitId(null);
+      setContactUnitIds([]);
       await fetchData();
+      if (postSaveNotice) alert(postSaveNotice);
     } catch (e: any) {
       setContactError(e?.message || 'تعذر حفظ سجل التواصل');
     } finally {
@@ -1135,20 +1330,35 @@ export default function CrmDashboardPage() {
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/60" />
           <div className="absolute inset-0 flex items-center justify-center p-4">
-            <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
+            <div className="w-full max-w-2xl max-h-[90vh] bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col">
               <div className="p-5 border-b border-gray-100">
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="font-bold text-gray-900">تسجيل تواصل</div>
                     <div className="text-sm text-gray-600 truncate">{contactClient.name}</div>
                   </div>
-                  <span className="px-3 py-1 rounded-lg text-xs font-bold bg-gray-100 text-gray-700 border border-gray-200">
-                    {contactChannel === 'call' ? 'اتصال' : contactChannel === 'whatsapp' ? 'واتساب' : 'بريد'}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="px-3 py-1 rounded-lg text-xs font-bold bg-gray-100 text-gray-700 border border-gray-200">
+                      {contactChannel === 'call' ? 'اتصال' : contactChannel === 'whatsapp' ? 'واتساب' : 'بريد'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setContactOpen(false);
+                        setContactClient(null);
+                        setContactUnitId(null);
+                        setContactUnitIds([]);
+                      }}
+                      className="w-9 h-9 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 font-extrabold"
+                      aria-label="إغلاق"
+                    >
+                      ×
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              <div className="p-5 space-y-4">
+              <div className="p-5 space-y-4 overflow-y-auto flex-1">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
                     <div className="text-xs font-bold text-gray-500">بيانات التواصل</div>
@@ -1186,9 +1396,201 @@ export default function CrmDashboardPage() {
                       ) : null}
                     </div>
                     <div className="text-xs text-gray-500 mt-2">سيتم حفظ المستخدم الذي سجل التواصل تلقائيًا.</div>
+
+                    {contactChannel === 'whatsapp' ? (
+                      <div className="mt-4 pt-4 border-t border-gray-200 space-y-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-xs font-bold text-gray-700">رسائل جاهزة (واتساب)</div>
+                          <div className="inline-flex bg-white border border-gray-200 rounded-xl overflow-hidden">
+                            <button
+                              type="button"
+                              onClick={() => setWaMode('template')}
+                              className={`px-3 py-1.5 text-xs font-bold ${waMode === 'template' ? 'bg-emerald-600 text-white' : 'text-gray-600'}`}
+                            >
+                              رسائل جاهزة
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setWaMode('custom')}
+                              className={`px-3 py-1.5 text-xs font-bold ${waMode === 'custom' ? 'bg-emerald-600 text-white' : 'text-gray-600'}`}
+                            >
+                              رسالة مخصصة
+                            </button>
+                          </div>
+                        </div>
+
+                        {waMode === 'template' ? (
+                          <div className="space-y-3">
+                            <div className="grid gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setWaMessageType('deed_transfer')}
+                                className={`p-3 rounded-xl border text-right font-bold text-sm transition-all ${
+                                  waMessageType === 'deed_transfer' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-gray-200 bg-white text-gray-800 hover:bg-gray-50'
+                                }`}
+                              >
+                                طلب حضور للإفراغ
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setWaMessageType('meter_transfer')}
+                                className={`p-3 rounded-xl border text-right font-bold text-sm transition-all ${
+                                  waMessageType === 'meter_transfer' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-gray-200 bg-white text-gray-800 hover:bg-gray-50'
+                                }`}
+                              >
+                                نقل عدادات
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setWaMessageType('payment_reminder')}
+                                className={`p-3 rounded-xl border text-right font-bold text-sm transition-all ${
+                                  waMessageType === 'payment_reminder' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-gray-200 bg-white text-gray-800 hover:bg-gray-50'
+                                }`}
+                              >
+                                تذكير بالسداد
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setWaMessageType('resale_contract')}
+                                className={`p-3 rounded-xl border text-right font-bold text-sm transition-all ${
+                                  waMessageType === 'resale_contract' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-gray-200 bg-white text-gray-800 hover:bg-gray-50'
+                                }`}
+                              >
+                                توقيع عقد إعادة بيع
+                              </button>
+                            </div>
+
+                            {waMessageType ? (
+                              <div className="space-y-2">
+                                <div className="bg-white p-3 rounded-xl border border-gray-200 text-xs leading-relaxed whitespace-pre-line text-gray-700">
+                                  {buildWaTemplateMessage()}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => openWhatsAppWithText(buildWaTemplateMessage())}
+                                    disabled={!contactClient.phone || !buildWaTemplateMessage()}
+                                    className="flex-1 px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold disabled:opacity-60"
+                                  >
+                                    إرسال واتساب
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      const txt = buildWaTemplateMessage();
+                                      await navigator.clipboard.writeText(txt);
+                                      setWaCopied(true);
+                                      setTimeout(() => setWaCopied(false), 1500);
+                                    }}
+                                    disabled={!buildWaTemplateMessage()}
+                                    className="px-3 py-2 rounded-xl bg-white border border-gray-200 text-gray-700 text-xs font-bold disabled:opacity-60"
+                                  >
+                                    {waCopied ? 'تم النسخ' : 'نسخ'}
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="text-xs text-gray-500">اختر نوع الرسالة لعرض المعاينة.</div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <textarea
+                              value={waCustomText}
+                              onChange={(e) => setWaCustomText(e.target.value)}
+                              className="w-full p-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none min-h-[90px]"
+                              placeholder="اكتب نص الرسالة..."
+                            />
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => openWhatsAppWithText(waCustomText.trim())}
+                                disabled={!waCustomText.trim()}
+                                className="flex-1 px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold disabled:opacity-60"
+                              >
+                                إرسال واتساب
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const txt = waCustomText.trim();
+                                  await navigator.clipboard.writeText(txt);
+                                  setWaCopied(true);
+                                  setTimeout(() => setWaCopied(false), 1500);
+                                }}
+                                disabled={!waCustomText.trim()}
+                                className="px-3 py-2 rounded-xl bg-white border border-gray-200 text-gray-700 text-xs font-bold disabled:opacity-60"
+                              >
+                                {waCopied ? 'تم النسخ' : 'نسخ'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-sm font-bold text-gray-700">الشقق المرتبطة بالتواصل *</div>
+                        {(contactClient.linkedUnits || []).length > 0 && contactUnitIds.length > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setContactUnitIds([]);
+                              setContactUnitId(null);
+                            }}
+                            className="text-xs font-bold text-gray-600 hover:text-gray-900"
+                          >
+                            مسح
+                          </button>
+                        ) : null}
+                      </div>
+
+                      {(contactClient.linkedUnits || []).length === 0 ? (
+                        <div className="text-xs text-gray-500">لا توجد وحدات مرتبطة بهذا العميل.</div>
+                      ) : (
+                        <div className="max-h-44 overflow-auto custom-scrollbar space-y-2">
+                          {(contactClient.linkedUnits || []).map((u) => {
+                            const checked = contactUnitIds.includes(u.unit_id);
+                            const label = `${u.project_number}-${u.unit_number}`;
+                            return (
+                              <label
+                                key={`${u.unit_id}_${u.relationLabel}`}
+                                className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                                  checked ? 'border-emerald-600 bg-emerald-50' : 'border-gray-200 bg-white hover:bg-gray-50'
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(e) => {
+                                    const nextChecked = e.target.checked;
+                                    setContactUnitIds((prev) => {
+                                      const next = nextChecked
+                                        ? Array.from(new Set([...prev, u.unit_id]))
+                                        : prev.filter((x) => x !== u.unit_id);
+                                      setContactUnitId(next[0] || null);
+                                      return next;
+                                    });
+                                  }}
+                                  className="mt-1"
+                                />
+                                <div className="min-w-0">
+                                  <div className="text-sm font-extrabold text-gray-900 truncate">
+                                    {label} <span className="text-gray-300 mx-1">•</span> {u.project_name}
+                                  </div>
+                                  <div className="text-xs text-gray-500 font-bold">{u.relationLabel}</div>
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pt-3 border-t border-gray-100">
                     <div className="grid grid-cols-1 gap-3">
                       <div className="space-y-2">
                         <div className="text-sm font-bold text-gray-700">نتيجة التواصل *</div>
@@ -1238,7 +1640,7 @@ export default function CrmDashboardPage() {
                               className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
                             >
                               <option value="">اختر...</option>
-                              {APPOINTMENT_WITH_OPTIONS.map((n) => (
+                              {appointmentWithOptions.map((n) => (
                                 <option key={n} value={n}>
                                   {n}
                                 </option>
@@ -1247,6 +1649,7 @@ export default function CrmDashboardPage() {
                           </div>
                         </div>
                       ) : null}
+                    </div>
                     </div>
                   </div>
                 </div>

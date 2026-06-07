@@ -5,6 +5,8 @@ import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { 
   LayoutDashboard, 
+  BarChart3,
+  CalendarClock,
   FileEdit, 
   Banknote, 
   FileCheck, 
@@ -23,9 +25,11 @@ import { supabase } from '../lib/supabaseClient';
 import logo from '../app/public/logo.png';
 
 const navigation = [
+  { name: 'لوحة التحكم', href: '/dashboard', icon: BarChart3 },
   { name: 'المشاريع', href: '/', icon: LayoutDashboard },
   { name: 'العملاء', href: '/clients', icon: Users },
   { name: 'CRM العملاء', href: '/crm', icon: ClipboardList },
+  { name: 'المواعيد', href: '/crm/appointments', icon: CalendarClock },
   { name: 'التعديلات', href: '/modifications', icon: FileEdit },
   { name: 'البحث الشامل', href: '/search', icon: Search },
   { name: 'مراجعة الصكوك', href: '/deeds', icon: FileCheck },

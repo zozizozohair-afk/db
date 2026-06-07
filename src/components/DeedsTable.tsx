@@ -1,6 +1,7 @@
 import React from 'react';
 import { 
   User, 
+  ClipboardList,
   MessageCircle 
 } from 'lucide-react';
 import { Unit } from '../types';
@@ -15,6 +16,7 @@ interface DeedsTableProps {
   units: EnrichedUnit[];
   loading: boolean;
   onMessageClick: (unit: EnrichedUnit) => void;
+  onTaskClick?: (unit: EnrichedUnit) => void;
   onStatusChange?: (unitId: string, newStatus: string) => Promise<void>;
 }
 
@@ -26,7 +28,7 @@ const statusMap: Record<string, { label: string, color: string }> = {
   'sold_to_other': { label: 'مباعة لآخر', color: 'bg-gray-100 text-gray-700' },
 };
 
-export default function DeedsTable({ units, loading, onMessageClick, onStatusChange }: DeedsTableProps) {
+export default function DeedsTable({ units, loading, onMessageClick, onTaskClick, onStatusChange }: DeedsTableProps) {
   const [updatingId, setUpdatingId] = React.useState<string | null>(null);
 
   const handleStatusUpdate = async (e: React.ChangeEvent<HTMLSelectElement>, unitId: string) => {
@@ -143,13 +145,24 @@ export default function DeedsTable({ units, loading, onMessageClick, onStatusCha
                     {unit.deed_number || '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-center">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onMessageClick(unit); }}
-                      className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
-                      title="إرسال رسالة"
-                    >
-                      <MessageCircle size={18} />
-                    </button>
+                    <div className="inline-flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                      {onTaskClick ? (
+                        <button
+                          onClick={() => onTaskClick(unit)}
+                          className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
+                          title="إضافة مهمة"
+                        >
+                          <ClipboardList size={18} />
+                        </button>
+                      ) : null}
+                      <button
+                        onClick={() => onMessageClick(unit)}
+                        className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
+                        title="إرسال رسالة"
+                      >
+                        <MessageCircle size={18} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))
