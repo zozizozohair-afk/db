@@ -309,7 +309,7 @@ export default function SearchPage() {
               <option value="sold">مباعة</option>
               <option value="sold_to_other">مباعة لآخر</option>
               <option value="resale">إعادة بيع</option>
-              <option value="pending_sale">قيد البيع</option>
+              <option value="pending_sale">بيع على الخارطة</option>
             </select>
           </div>
         </div>

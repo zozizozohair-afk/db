@@ -15,6 +15,8 @@ type ModelRow = {
   location_url: string | null;
   files: UnitModelFile[];
   created_at: string;
+  public_enabled?: boolean | null;
+  area_sqm?: number | null;
 };
 
 type TabKey = 'images' | 'videos' | 'files' | 'location' | 'description' | 'message';
@@ -27,10 +29,13 @@ export default function ModelDetailsClient({ projectId, modelId }: { projectId: 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState<null | 'image' | 'video' | 'file'>(null);
+  const [publishSaving, setPublishSaving] = useState(false);
 
   const [locationUrl, setLocationUrl] = useState('');
   const [projectLocationUrl, setProjectLocationUrl] = useState<string | null>(null);
   const [description, setDescription] = useState('');
+  const [areaSqm, setAreaSqm] = useState('');
+  const [roleSavingId, setRoleSavingId] = useState<string | null>(null);
 
   const imgInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
@@ -49,20 +54,29 @@ export default function ModelDetailsClient({ projectId, modelId }: { projectId: 
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const [modelRes, projRes] = await Promise.all([
-        supabase
+      let modelRes = await supabase
+        .from('unit_models')
+        .select('id, project_id, name, description, location_url, files, created_at, public_enabled, area_sqm')
+        .eq('id', modelId)
+        .eq('project_id', projectId)
+        .single();
+
+      if (modelRes.error && String(modelRes.error.message || '').toLowerCase().includes('column')) {
+        modelRes = await supabase
           .from('unit_models')
           .select('id, project_id, name, description, location_url, files, created_at')
           .eq('id', modelId)
           .eq('project_id', projectId)
-          .single(),
-        supabase.from('projects').select('location_url').eq('id', projectId).single()
-      ]);
+          .single();
+      }
+
+      const projRes = await supabase.from('projects').select('location_url').eq('id', projectId).single();
 
       if (modelRes.error) throw modelRes.error;
       const m = modelRes.data as any;
       setModel(m as any);
       setDescription(String(m?.description || ''));
+      setAreaSqm(m?.area_sqm == null ? '' : String(m.area_sqm));
 
       const projectUrl = (projRes.data as any)?.location_url || null;
       setProjectLocationUrl(projectUrl ? String(projectUrl) : null);
@@ -70,7 +84,7 @@ export default function ModelDetailsClient({ projectId, modelId }: { projectId: 
 
       const { data: a, error: aErr } = await supabase
         .from('unit_model_assets')
-        .select('id, created_at, model_id, project_id, kind, title, file_url, file_path')
+        .select('id, created_at, model_id, project_id, kind, display_role, title, file_url, file_path')
         .eq('model_id', modelId)
         .order('created_at', { ascending: false });
       if (aErr) throw aErr;
@@ -107,10 +121,18 @@ export default function ModelDetailsClient({ projectId, modelId }: { projectId: 
           .toString(36)
           .slice(2)}.${ext}`;
 
-        const { error: upErr } = await supabase.storage.from('project-files').upload(filePath, file);
-        if (upErr) throw upErr;
+        const { error: upErr } = await supabase.storage.from('public-media').upload(filePath, file);
+        if (upErr) {
+          const msg = String(upErr.message || '').toLowerCase();
+          if (msg.includes('bucket') && (msg.includes('not found') || msg.includes('does not exist'))) {
+            throw new Error(
+              "لا يمكن رفع ملفات النموذج لأن Bucket العرض العام غير موجود.\n\nأنشئ Bucket في Supabase Storage باسم: public-media\nواجعله Public.\n\nبعدها أعد المحاولة."
+            );
+          }
+          throw upErr;
+        }
 
-        const { data: { publicUrl } } = supabase.storage.from('project-files').getPublicUrl(filePath);
+        const { data: { publicUrl } } = supabase.storage.from('public-media').getPublicUrl(filePath);
 
         const { error: dbErr } = await supabase.from('unit_model_assets').insert({
           project_id: projectId,
@@ -136,11 +158,66 @@ export default function ModelDetailsClient({ projectId, modelId }: { projectId: 
   const deleteAsset = async (a: UnitModelAsset) => {
     if (!confirm('هل تريد حذف هذا العنصر؟')) return;
     try {
-      await supabase.storage.from('project-files').remove([a.file_path]);
+      const resPublic = await supabase.storage.from('public-media').remove([a.file_path]);
+      if (resPublic.error) {
+        await supabase.storage.from('project-files').remove([a.file_path]);
+      }
       await supabase.from('unit_model_assets').delete().eq('id', a.id);
       setAssets((prev) => prev.filter((x) => x.id !== a.id));
     } catch (e: any) {
       alert(e?.message || 'تعذر حذف العنصر');
+    }
+  };
+
+  const roleLabel = (role: UnitModelAsset['display_role']) => {
+    if (role === 'cover') return 'غلاف';
+    if (role === 'facade') return 'واجهة';
+    return 'بدون';
+  };
+
+  const setImageRole = async (asset: UnitModelAsset, nextRole: 'cover' | 'facade' | null) => {
+    try {
+      setRoleSavingId(asset.id);
+
+      const roleRes = await supabase
+        .from('unit_model_assets')
+        .update({ display_role: nextRole })
+        .eq('id', asset.id);
+
+      if (roleRes.error) {
+        const msg = String(roleRes.error.message || '').toLowerCase();
+        if (msg.includes('column')) {
+          alert(
+            "العمود display_role غير موجود في جدول unit_model_assets.\n\nنفّذ هذا في Supabase SQL Editor:\n\nalter table public.unit_model_assets add column if not exists display_role text check (display_role in ('cover','facade'));"
+          );
+          return;
+        }
+        throw roleRes.error;
+      }
+
+      if (nextRole) {
+        const clearRes = await supabase
+          .from('unit_model_assets')
+          .update({ display_role: null })
+          .eq('model_id', asset.model_id)
+          .eq('kind', 'image')
+          .eq('display_role', nextRole)
+          .neq('id', asset.id);
+        if (clearRes.error) throw clearRes.error;
+      }
+
+      setAssets((prev) =>
+        prev.map((x) => {
+          if (x.kind !== 'image') return x;
+          if (x.id === asset.id) return { ...x, display_role: nextRole };
+          if (nextRole && x.model_id === asset.model_id && x.display_role === nextRole) return { ...x, display_role: null };
+          return x;
+        })
+      );
+    } catch (e: any) {
+      alert(e?.message || 'تعذر تحديث دور الصورة');
+    } finally {
+      setRoleSavingId(null);
     }
   };
 
@@ -149,7 +226,8 @@ export default function ModelDetailsClient({ projectId, modelId }: { projectId: 
     try {
       setSaving(true);
       const payload: any = {
-        description: description.trim() || null
+        description: description.trim() || null,
+        area_sqm: areaSqm.trim() ? Number(areaSqm) : null
       };
       if (!projectLocationUrl) {
         payload.location_url = locationUrl.trim() || null;
@@ -159,12 +237,46 @@ export default function ModelDetailsClient({ projectId, modelId }: { projectId: 
         .update(payload)
         .eq('id', modelId)
         .eq('project_id', projectId);
-      if (error) throw error;
+      if (error) {
+        const msg = String(error.message || '').toLowerCase();
+        if (msg.includes('column')) {
+          alert(
+            'بعض أعمدة النشر غير موجودة في unit_models.\n\nنفّذ هذا في Supabase SQL Editor:\n\nalter table public.unit_models add column if not exists area_sqm numeric;'
+          );
+          return;
+        }
+        throw error;
+      }
       await fetchAll();
     } catch (e: any) {
       alert(e?.message || 'تعذر حفظ البيانات');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const togglePublish = async () => {
+    if (!model) return;
+    setPublishSaving(true);
+    try {
+      const next = !Boolean((model as any)?.public_enabled);
+      let res = await supabase
+        .from('unit_models')
+        .update({ public_enabled: next })
+        .eq('id', modelId)
+        .eq('project_id', projectId);
+      if (res.error && String(res.error.message || '').toLowerCase().includes('column')) {
+        alert(
+          'العمود public_enabled غير موجود في جدول unit_models.\n\nنفّذ هذا في Supabase SQL Editor:\n\nalter table public.unit_models add column if not exists public_enabled boolean not null default false;'
+        );
+        return;
+      }
+      if (res.error) throw res.error;
+      setModel((prev) => (prev ? ({ ...(prev as any), public_enabled: next } as any) : prev));
+    } catch (e: any) {
+      alert(e?.message || 'تعذر تحديث حالة النشر');
+    } finally {
+      setPublishSaving(false);
     }
   };
 
@@ -213,6 +325,20 @@ export default function ModelDetailsClient({ projectId, modelId }: { projectId: 
           >
             <Save size={16} />
             {saving ? 'جارٍ الحفظ...' : 'حفظ'}
+          </button>
+
+          <button
+            type="button"
+            onClick={togglePublish}
+            disabled={publishSaving}
+            className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-extrabold disabled:opacity-50 ${
+              Boolean((model as any)?.public_enabled)
+                ? 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                : 'border-slate-300 bg-white text-slate-800 hover:bg-slate-50'
+            }`}
+          >
+            <ExternalLink size={16} />
+            {publishSaving ? 'جارٍ التحديث...' : Boolean((model as any)?.public_enabled) ? 'منشور في الهبوط' : 'غير منشور'}
           </button>
         </div>
       </header>
@@ -341,6 +467,18 @@ export default function ModelDetailsClient({ projectId, modelId }: { projectId: 
             ) : tab === 'description' ? (
               <div className="space-y-3">
                 <div className="text-sm font-extrabold text-slate-900">وصف الشقة</div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <div className="text-sm font-extrabold text-slate-800">المساحة (م²)</div>
+                    <input
+                      type="number"
+                      value={areaSqm}
+                      onChange={(e) => setAreaSqm(e.target.value)}
+                      className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                      placeholder="مثال: 145"
+                    />
+                  </div>
+                </div>
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
@@ -381,6 +519,43 @@ export default function ModelDetailsClient({ projectId, modelId }: { projectId: 
                         <button type="button" onClick={() => setPreviewUrl(img.file_url)} className="block w-full">
                           <img src={img.file_url} alt={img.title || ''} className="aspect-square w-full object-cover" />
                         </button>
+                        <div className="p-2 space-y-2 border-t border-slate-200 bg-white">
+                          <div className="text-[11px] font-extrabold text-slate-700">الدور الحالي: {roleLabel(img.display_role || null)}</div>
+                          <div className="grid grid-cols-3 gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setImageRole(img, 'cover')}
+                              disabled={roleSavingId === img.id}
+                              className={`px-2 py-1 rounded text-[11px] font-extrabold border ${
+                                img.display_role === 'cover'
+                                  ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                                  : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                              }`}
+                            >
+                              غلاف
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setImageRole(img, 'facade')}
+                              disabled={roleSavingId === img.id}
+                              className={`px-2 py-1 rounded text-[11px] font-extrabold border ${
+                                img.display_role === 'facade'
+                                  ? 'border-blue-300 bg-blue-50 text-blue-700'
+                                  : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                              }`}
+                            >
+                              واجهة
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setImageRole(img, null)}
+                              disabled={roleSavingId === img.id}
+                              className="px-2 py-1 rounded text-[11px] font-extrabold border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                            >
+                              مسح
+                            </button>
+                          </div>
+                        </div>
                         <button
                           type="button"
                           onClick={() => deleteAsset(img)}

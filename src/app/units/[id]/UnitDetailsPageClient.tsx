@@ -34,7 +34,9 @@ import {
   Trash2,
   Upload,
   Files,
-  Share2
+  Share2,
+  Edit2,
+  Save
 } from 'lucide-react';
 
 interface MergeableFile {
@@ -55,6 +57,18 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
   const [contracts, setContracts] = useState<UnitContract[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const trySignProjectFileUrl = async (filePath: string, fallbackUrl?: string | null) => {
+    const path = String(filePath || '').trim();
+    if (!path) return String(fallbackUrl || '').trim() || null;
+    try {
+      const res = await supabase.storage.from('project-files').createSignedUrl(path, 60 * 60);
+      if (res.error) return String(fallbackUrl || '').trim() || null;
+      return String(res.data?.signedUrl || '').trim() || String(fallbackUrl || '').trim() || null;
+    } catch {
+      return String(fallbackUrl || '').trim() || null;
+    }
+  };
+
   // Contract Upload Modal State
   const [showContractModal, setShowContractModal] = useState(false);
   const [contractType, setContractType] = useState<string>('');
@@ -66,6 +80,11 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [mergeableFiles, setMergeableFiles] = useState<MergeableFile[]>([]);
   const [isMerging, setIsMerging] = useState(false);
+
+  // Edit Unit State
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [editData, setEditData] = useState<Partial<Unit>>({});
 
   useEffect(() => {
     const fetchUnitDetails = async () => {
@@ -81,6 +100,8 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
 
         if (unitError) throw unitError;
         setUnit(unitData);
+        // Initialize edit data
+        setEditData(unitData);
 
         // Fetch Project
         if (unitData.project_id) {
@@ -100,7 +121,13 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
               .eq('project_id', unitData.project_id);
               
             if (!docsError && docsData) {
-              setProjectDocuments(docsData);
+              const signedDocs = await Promise.all(
+                (docsData as any[]).map(async (d) => {
+                  const signedUrl = await trySignProjectFileUrl(String((d as any)?.file_path || ''), String((d as any)?.file_url || ''));
+                  return { ...(d as any), file_url: signedUrl || (d as any)?.file_url } as any;
+                })
+              );
+              setProjectDocuments(signedDocs as any);
             }
 
             // Fetch Unit Model (based on direction_label)
@@ -125,7 +152,13 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
               .order('created_at', { ascending: false });
 
             if (!contractsError && contractsData) {
-              setContracts(contractsData);
+              const signedContracts = await Promise.all(
+                (contractsData as any[]).map(async (c) => {
+                  const signedUrl = await trySignProjectFileUrl(String((c as any)?.file_path || ''), String((c as any)?.file_url || ''));
+                  return { ...(c as any), file_url: signedUrl || (c as any)?.file_url } as any;
+                })
+              );
+              setContracts(signedContracts as any);
             }
           }
         }
@@ -147,6 +180,7 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
       available: 'bg-green-100 text-green-800 border-green-200',
       sold: 'bg-red-100 text-red-800 border-red-200',
       sold_to_other: 'bg-gray-100 text-gray-800 border-gray-200',
+      transferred_to_other: 'bg-slate-100 text-slate-800 border-slate-200',
       resale: 'bg-purple-100 text-purple-800 border-purple-200',
       pending_sale: 'bg-orange-100 text-orange-800 border-orange-200',
     };
@@ -155,8 +189,9 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
       available: 'غير مباعة',
       sold: 'مباعة',
       sold_to_other: 'مباعة لآخر',
+      transferred_to_other: 'مفرغة لآخر',
       resale: 'إعادة بيع',
-      pending_sale: 'قيد البيع',
+      pending_sale: 'بيع على الخارطة',
     };
 
     const statusKey = status as keyof typeof styles;
@@ -247,7 +282,8 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
       if (dbError) throw dbError;
 
       // 4. Update state
-      setContracts([contractData, ...contracts]);
+      const signedUrl = await trySignProjectFileUrl(String((contractData as any)?.file_path || ''), String((contractData as any)?.file_url || ''));
+      setContracts([{ ...(contractData as any), file_url: signedUrl || (contractData as any)?.file_url } as any, ...contracts]);
       setShowContractModal(false);
       setContractType('');
       setCustomContractType('');
@@ -419,6 +455,29 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
     }
   };
 
+  const handleSaveEdit = async () => {
+    try {
+      setIsSavingEdit(true);
+      
+      const { error } = await supabase
+        .from('units')
+        .update(editData)
+        .eq('id', id);
+
+      if (error) throw error;
+
+      // Update the local state
+      setUnit(prev => prev ? { ...prev, ...editData } : null);
+      setShowEditModal(false);
+      alert('تم تحديث الوحدة بنجاح!');
+    } catch (error) {
+      console.error('Error updating unit:', error);
+      alert('حدث خطأ أثناء تحديث الوحدة');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -469,6 +528,17 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
             >
               <Printer size={20} />
             </button>
+            <button 
+              onClick={() => {
+                if (unit) setEditData(unit);
+                setShowEditModal(true);
+              }}
+              className="p-2 text-blue-600 hover:bg-blue-100 rounded-md transition-colors flex items-center gap-2"
+              title="تعديل الوحدة"
+            >
+              <Edit2 size={20} />
+              <span className="hidden sm:inline text-sm font-medium">تعديل</span>
+            </button>
             {getStatusBadge(unit.status)}
           </div>
         </div>
@@ -488,7 +558,7 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
               <h2 className="text-3xl font-bold text-gray-900 mb-2">
                 {unit.type === 'apartment' ? 'شقة سكنية' : 'ملحق علوي'} - {unit.floor_label}
               </h2>
-              <div className="flex items-center gap-4 text-gray-500 text-sm">
+              <div className="flex items-center gap-4 text-gray-500 text-sm mb-4">
                 <span className="flex items-center gap-1">
                   <MapPin size={14} />
                   {unit.direction_label}
@@ -500,9 +570,14 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
                   </span>
                 )}
               </div>
+              {unit.description && (
+                <div className="mt-2 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+                  <p className="text-sm text-yellow-900 font-medium">{unit.description}</p>
+                </div>
+              )}
             </div>
             
-            <div className="flex gap-4">
+            <div className="flex gap-4 flex-wrap">
                <div className="bg-blue-50 px-4 py-3 rounded-xl flex flex-col items-center min-w-[100px]">
                  <span className="text-xs text-blue-600 font-medium mb-1">رقم العداد</span>
                  <div className="flex items-center gap-1 text-blue-900 font-bold">
@@ -517,6 +592,15 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
                    {unit.water_meter || '-'}
                  </div>
                </div>
+               {unit.area_sqm && (
+                 <div className="bg-green-50 px-4 py-3 rounded-xl flex flex-col items-center min-w-[100px]">
+                   <span className="text-xs text-green-600 font-medium mb-1">المساحة</span>
+                   <div className="flex items-center gap-1 text-green-900 font-bold">
+                     <Layers size={16} />
+                     {unit.area_sqm} م²
+                   </div>
+                 </div>
+               )}
             </div>
           </div>
         </div>
@@ -1034,6 +1118,142 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
                 <button
                   onClick={() => setShowMergeModal(false)}
                   disabled={isMerging}
+                  className="px-6 py-3 rounded-xl font-bold text-gray-600 hover:bg-gray-200 transition-colors"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Edit Unit Modal */}
+        {showEditModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl w-full max-w-2xl shadow-xl overflow-hidden animate-in fade-in zoom-in duration-200">
+              <div className="flex items-center justify-between p-6 border-b border-gray-100">
+                <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                  <Edit2 size={24} className="text-blue-600" />
+                  تعديل الوحدة
+                </h3>
+                <button
+                  onClick={() => setShowEditModal(false)}
+                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              
+              <div className="p-6 max-h-[70vh] overflow-y-auto space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700">رقم الوحدة</label>
+                    <input
+                      type="number"
+                      value={editData.unit_number || ''}
+                      onChange={(e) => setEditData({ ...editData, unit_number: Number(e.target.value) })}
+                      className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700">تسمية الطابق</label>
+                    <input
+                      type="text"
+                      value={editData.floor_label || ''}
+                      onChange={(e) => setEditData({ ...editData, floor_label: e.target.value })}
+                      className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">الاتجاه / الوصف</label>
+                  <input
+                    type="text"
+                    value={editData.direction_label || ''}
+                    onChange={(e) => setEditData({ ...editData, direction_label: e.target.value })}
+                    className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700">المساحة (م²)</label>
+                    <input
+                      type="number"
+                      value={editData.area_sqm || ''}
+                      onChange={(e) => setEditData({ ...editData, area_sqm: e.target.value ? Number(e.target.value) : null })}
+                      className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700">الحالة</label>
+                    <select
+                      value={editData.status || 'available'}
+                      onChange={(e) => setEditData({ ...editData, status: e.target.value as typeof editData.status })}
+                      className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all bg-white"
+                    >
+                      <option value="available">غير مباعة</option>
+                      <option value="sold">مباعة</option>
+                      <option value="sold_to_other">مباعة لآخر</option>
+                      <option value="resale">إعادة بيع</option>
+                      <option value="pending_sale">بيع على الخارطة</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">وصف الوحدة</label>
+                  <textarea
+                    value={editData.description || ''}
+                    onChange={(e) => setEditData({ ...editData, description: e.target.value })}
+                    rows={3}
+                    className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all resize-none"
+                    placeholder="وصف تفصيلي للوحدة..."
+                  />
+                </div>
+
+                <div className="pt-4 border-t border-gray-200">
+                  <h4 className="text-sm font-bold text-gray-700 mb-4">البيانات الإضافية</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label className="block text-xs font-medium text-gray-600">رقم عداد الكهرباء</label>
+                      <input
+                        type="text"
+                        value={editData.electricity_meter || ''}
+                        onChange={(e) => setEditData({ ...editData, electricity_meter: e.target.value })}
+                        className="w-full px-3 py-2 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all text-sm"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="block text-xs font-medium text-gray-600">رقم عداد المياه</label>
+                      <input
+                        type="text"
+                        value={editData.water_meter || ''}
+                        onChange={(e) => setEditData({ ...editData, water_meter: e.target.value })}
+                        className="w-full px-3 py-2 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all text-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6 border-t border-gray-100 bg-gray-50 flex gap-3">
+                <button
+                  onClick={handleSaveEdit}
+                  disabled={isSavingEdit}
+                  className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+                >
+                  {isSavingEdit ? (
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                  ) : (
+                    <Save size={20} />
+                  )}
+                  {isSavingEdit ? 'جاري الحفظ...' : 'حفظ التغييرات'}
+                </button>
+                <button
+                  onClick={() => setShowEditModal(false)}
+                  disabled={isSavingEdit}
                   className="px-6 py-3 rounded-xl font-bold text-gray-600 hover:bg-gray-200 transition-colors"
                 >
                   إلغاء

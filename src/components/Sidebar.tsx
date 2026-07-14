@@ -18,7 +18,8 @@ import {
   Search,
   CreditCard,
   Files,
-  Users
+  Users,
+  FileSignature
 } from 'lucide-react';
 import { useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
@@ -28,6 +29,7 @@ const navigation = [
   { name: 'لوحة التحكم', href: '/dashboard', icon: BarChart3 },
   { name: 'المشاريع', href: '/', icon: LayoutDashboard },
   { name: 'العملاء', href: '/clients', icon: Users },
+  { name: 'العقود', href: '/contracts', icon: FileSignature },
   { name: 'CRM العملاء', href: '/crm', icon: ClipboardList },
   { name: 'المواعيد', href: '/crm/appointments', icon: CalendarClock },
   { name: 'التعديلات', href: '/modifications', icon: FileEdit },

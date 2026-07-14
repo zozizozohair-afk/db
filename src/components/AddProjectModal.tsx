@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { X, Plus, Save, RefreshCw, ArrowRight, Check, Loader2, MapPin, LocateFixed } from 'lucide-react';
-import { generateUnitsLogic, GeneratedUnit } from '../utils/projectLogic';
+import { generateUnitsLogic, GeneratedUnit, getDirAr, RIGHT_OF, LEFT_OF, OPPOSITE_OF } from '../utils/projectLogic';
 import { supabase } from '../lib/supabaseClient';
 
 const OSMLocationPicker = dynamic(() => import('./OSMLocationPicker'), { ssr: false });
@@ -23,6 +23,9 @@ export default function AddProjectModal({ isOpen, onClose, onSave, onSuccess }: 
   // Basic Info
   const [projectName, setProjectName] = useState('');
   const [deedNumber, setDeedNumber] = useState('');
+  const [deedDate, setDeedDate] = useState(''); // تاريخ الصك
+  const [plotNumber, setPlotNumber] = useState(''); // رقم القطعة
+  const [planNumber, setPlanNumber] = useState(''); // رقم المخطط
   const [projectNumber, setProjectNumber] = useState('');
   const [orientation, setOrientation] = useState<'North' | 'South' | 'East' | 'West'>('North');
   
@@ -32,8 +35,14 @@ export default function AddProjectModal({ isOpen, onClose, onSave, onSuccess }: 
   const [hasAnnex, setHasAnnex] = useState(false);
   const [annexCount, setAnnexCount] = useState(1); // 1 or 2
 
-  // Custom Directions (for non-4 units)
+  // Custom Directions (always shown)
   const [customDirections, setCustomDirections] = useState<string[]>([]);
+  const [customAreas, setCustomAreas] = useState<(number | null)[]>([]);
+  const [customDescriptions, setCustomDescriptions] = useState<string[]>([]);
+
+  // Annex data
+  const [annexAreas, setAnnexAreas] = useState<(number | null)[]>([]);
+  const [annexDescriptions, setAnnexDescriptions] = useState<string[]>([]);
 
   // Generated Units Preview
   const [generatedUnits, setGeneratedUnits] = useState<GeneratedUnit[]>([]);
@@ -44,12 +53,36 @@ export default function AddProjectModal({ isOpen, onClose, onSave, onSuccess }: 
 
   // --- Effects ---
 
-  // Initialize custom directions array when unitsPerFloor changes
+  // Initialize custom arrays when unitsPerFloor or orientation changes
   useEffect(() => {
-    if (unitsPerFloor !== 4) {
-      setCustomDirections(new Array(unitsPerFloor).fill(''));
+    let newDirections: string[];
+    if (unitsPerFloor === 4) {
+      // Generate default 4 directions
+      const frontDir = orientation;
+      const rearDir = OPPOSITE_OF[frontDir];
+      const rightDir = RIGHT_OF[frontDir];
+      const leftDir = LEFT_OF[frontDir];
+      
+      newDirections = [
+        `${getDirAr(frontDir)}ية ${getDirAr(rightDir)}ية أمامية`,
+        `${getDirAr(frontDir)}ية ${getDirAr(leftDir)}ية أمامية`,
+        `${getDirAr(rearDir)}ية ${getDirAr(leftDir)}ية خلفية`,
+        `${getDirAr(rearDir)}ية ${getDirAr(rightDir)}ية خلفية`
+      ];
+    } else {
+      newDirections = new Array(unitsPerFloor).fill('');
     }
-  }, [unitsPerFloor]);
+
+    setCustomDirections(newDirections);
+    setCustomAreas(new Array(unitsPerFloor).fill(null));
+    setCustomDescriptions(new Array(unitsPerFloor).fill(''));
+  }, [unitsPerFloor, orientation]);
+
+  // Initialize annex arrays when annexCount changes
+  useEffect(() => {
+    setAnnexAreas(new Array(annexCount).fill(null));
+    setAnnexDescriptions(new Array(annexCount).fill(''));
+  }, [annexCount]);
 
   // --- Handlers ---
 
@@ -59,12 +92,7 @@ export default function AddProjectModal({ isOpen, onClose, onSave, onSuccess }: 
         alert('الرجاء إدخال اسم المشروع');
         return;
       }
-      if (unitsPerFloor !== 4) {
-        setStep(2); // Go to custom directions
-      } else {
-        generateAndPreview();
-        setStep(3); // Go directly to preview
-      }
+      setStep(2); // Always go to step 2
     } else if (step === 2) {
       generateAndPreview();
       setStep(3);
@@ -78,15 +106,43 @@ export default function AddProjectModal({ isOpen, onClose, onSave, onSuccess }: 
       Number(unitsPerFloor),
       hasAnnex,
       Number(annexCount),
-      customDirections
+      customDirections,
+      customAreas,
+      customDescriptions,
+      annexAreas,
+      annexDescriptions
     );
     setGeneratedUnits(units);
+  };
+
+  const handleAnnexAreaChange = (index: number, value: string) => {
+    const newAreas = [...annexAreas];
+    newAreas[index] = value ? Number(value) : null;
+    setAnnexAreas(newAreas);
+  };
+
+  const handleAnnexDescriptionChange = (index: number, value: string) => {
+    const newDescs = [...annexDescriptions];
+    newDescs[index] = value;
+    setAnnexDescriptions(newDescs);
   };
 
   const handleCustomDirectionChange = (index: number, value: string) => {
     const newDirs = [...customDirections];
     newDirs[index] = value;
     setCustomDirections(newDirs);
+  };
+
+  const handleCustomAreaChange = (index: number, value: string) => {
+    const newAreas = [...customAreas];
+    newAreas[index] = value ? Number(value) : null;
+    setCustomAreas(newAreas);
+  };
+
+  const handleCustomDescriptionChange = (index: number, value: string) => {
+    const newDescs = [...customDescriptions];
+    newDescs[index] = value;
+    setCustomDescriptions(newDescs);
   };
 
   const buildOSMLink = (lat: number, lng: number) =>
@@ -125,6 +181,9 @@ export default function AddProjectModal({ isOpen, onClose, onSave, onSuccess }: 
           name: projectName,
           project_number: projectNumber,
           deed_number: deedNumber,
+          deed_date: deedDate || null,
+          plot_number: plotNumber || null,
+          plan_number: planNumber || null,
           orientation: orientation,
           floors_count: floorsCount,
           units_per_floor: unitsPerFloor,
@@ -151,6 +210,8 @@ export default function AddProjectModal({ isOpen, onClose, onSave, onSuccess }: 
         floor_label: unit.floorLabel,
         direction_label: unit.directionLabel,
         type: unit.type,
+        area_sqm: unit.areaSqm,
+        description: unit.description,
         status: 'available' // Default status
       }));
 
@@ -182,12 +243,19 @@ export default function AddProjectModal({ isOpen, onClose, onSave, onSuccess }: 
     setProjectName('');
     setProjectNumber('');
     setDeedNumber('');
+    setDeedDate('');
+    setPlotNumber('');
+    setPlanNumber('');
     setOrientation('North');
     setFloorsCount(1);
     setUnitsPerFloor(4);
     setHasAnnex(false);
     setAnnexCount(1);
     setCustomDirections([]);
+    setCustomAreas([]);
+    setCustomDescriptions([]);
+    setAnnexAreas([]);
+    setAnnexDescriptions([]);
     setGeneratedUnits([]);
     setLocation({ lat: null, lng: null });
     setLocationUrl('');
@@ -214,19 +282,15 @@ export default function AddProjectModal({ isOpen, onClose, onSave, onSuccess }: 
           <div className="flex items-center justify-center mb-8">
             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${step >= 1 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'}`}>1</div>
             <div className={`w-16 h-1 bg-gray-200 ${step >= 2 ? 'bg-blue-600' : ''}`}></div>
-            {unitsPerFloor !== 4 && (
-              <>
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${step >= 2 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'}`}>2</div>
-                <div className={`w-16 h-1 bg-gray-200 ${step >= 3 ? 'bg-blue-600' : ''}`}></div>
-              </>
-            )}
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${step === 3 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'}`}>{unitsPerFloor !== 4 ? 3 : 2}</div>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${step >= 2 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'}`}>2</div>
+            <div className={`w-16 h-1 bg-gray-200 ${step >= 3 ? 'bg-blue-600' : ''}`}></div>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${step === 3 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'}`}>3</div>
           </div>
 
           {/* STEP 1: Basic Information */}
           {step === 1 && (
             <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 
                 {/* Project Name */}
                 <div className="space-y-2">
@@ -261,6 +325,41 @@ export default function AddProjectModal({ isOpen, onClose, onSave, onSuccess }: 
                     onChange={(e) => setDeedNumber(e.target.value)}
                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                     placeholder="رقم الصك الإلكتروني"
+                  />
+                </div>
+
+                {/* Deed Date */}
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">تاريخ الصك</label>
+                  <input 
+                    type="date" 
+                    value={deedDate}
+                    onChange={(e) => setDeedDate(e.target.value)}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+
+                {/* Plot Number */}
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">رقم القطعة</label>
+                  <input 
+                    type="text" 
+                    value={plotNumber}
+                    onChange={(e) => setPlotNumber(e.target.value)}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="رقم القطعة الأرضية"
+                  />
+                </div>
+
+                {/* Plan Number */}
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">رقم المخطط</label>
+                  <input 
+                    type="text" 
+                    value={planNumber}
+                    onChange={(e) => setPlanNumber(e.target.value)}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="رقم المخطط المعتمد"
                   />
                 </div>
 
@@ -302,9 +401,7 @@ export default function AddProjectModal({ isOpen, onClose, onSave, onSuccess }: 
                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                   />
                   <p className="text-xs text-gray-500">
-                    {unitsPerFloor === 4 
-                      ? "سيتم تسمية الاتجاهات تلقائياً حسب النظام (4 شقق)." 
-                      : "سيطلب منك تحديد اتجاهات الوحدات يدوياً في الخطوة التالية."}
+                    سيتم تخصيص الوحدات في الخطوة التالية.
                   </p>
                 </div>
               </div>
@@ -413,29 +510,100 @@ export default function AddProjectModal({ isOpen, onClose, onSave, onSuccess }: 
             </div>
           )}
 
-          {/* STEP 2: Custom Directions (Only if unitsPerFloor != 4) */}
-          {step === 2 && unitsPerFloor !== 4 && (
+          {/* STEP 2: Custom Directions & Area & Description (Always shown) */}
+          {step === 2 && (
             <div className="space-y-6">
-              <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-100 text-yellow-800 text-sm mb-4">
-                بما أن عدد الوحدات ليس 4، يرجى تحديد اتجاهات الوحدات للدور الواحد، وسيتم تكرارها لجميع الأدوار.
+              <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 text-blue-800 text-sm mb-4">
+                يرجى تحديد تفاصيل الوحدات للدور الواحد، وسيتم تكرارها لجميع الأدوار.
               </div>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Regular Units */}
+              <div className="space-y-6">
+                <h3 className="text-lg font-bold text-gray-900">الشقق السكنية</h3>
                 {customDirections.map((dir, idx) => (
-                  <div key={idx} className="space-y-2">
-                    <label className="block text-sm font-medium text-gray-700">
-                      اتجاه الوحدة رقم {idx + 1}
-                    </label>
-                    <input 
-                      type="text" 
-                      value={dir}
-                      onChange={(e) => handleCustomDirectionChange(idx, e.target.value)}
-                      placeholder={`مثال: شمالية شرقية`}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                    />
+                  <div key={idx} className="p-4 border border-gray-200 rounded-xl bg-white">
+                    <div className="text-sm font-bold text-gray-700 mb-4">الوحدة رقم {idx + 1}</div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="space-y-2">
+                        <label className="block text-sm font-medium text-gray-700">الاتجاه</label>
+                        <input 
+                          type="text" 
+                          value={dir}
+                          onChange={(e) => handleCustomDirectionChange(idx, e.target.value)}
+                          placeholder={`مثال: شمالية شرقية`}
+                          className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="block text-sm font-medium text-gray-700">المساحة (م²)</label>
+                        <input 
+                          type="number" 
+                          value={customAreas[idx] || ''}
+                          onChange={(e) => handleCustomAreaChange(idx, e.target.value)}
+                          placeholder={`مثال: 150`}
+                          className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="block text-sm font-medium text-gray-700">الوصف</label>
+                        <input 
+                          type="text" 
+                          value={customDescriptions[idx]}
+                          onChange={(e) => handleCustomDescriptionChange(idx, e.target.value)}
+                          placeholder={`مثال: شقة 3 غرف`}
+                          className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                        />
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
+
+              {/* Annex Units (if hasAnnex) */}
+              {hasAnnex && (
+                <div className="space-y-6 pt-6 border-t border-gray-200">
+                  <h3 className="text-lg font-bold text-gray-900">الملاحق</h3>
+                  {annexAreas.map((_, idx) => {
+                    // Generate default annex label
+                    let defaultLabel = '';
+                    if (annexCount === 2) {
+                      const rightDir = RIGHT_OF[orientation];
+                      const leftDir = LEFT_OF[orientation];
+                      defaultLabel = idx === 0 ? `ملحق ${getDirAr(rightDir)}ي` : `ملحق ${getDirAr(leftDir)}ي`;
+                    } else {
+                      defaultLabel = `ملحق ${getDirAr(orientation)}ي`;
+                    }
+                    
+                    return (
+                      <div key={idx} className="p-4 border border-purple-200 rounded-xl bg-purple-50">
+                        <div className="text-sm font-bold text-purple-700 mb-4">{defaultLabel}</div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <label className="block text-sm font-medium text-gray-700">المساحة (م²)</label>
+                            <input 
+                              type="number" 
+                              value={annexAreas[idx] || ''}
+                              onChange={(e) => handleAnnexAreaChange(idx, e.target.value)}
+                              placeholder={`مثال: 50`}
+                              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none bg-white"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="block text-sm font-medium text-gray-700">الوصف</label>
+                            <input 
+                              type="text" 
+                              value={annexDescriptions[idx]}
+                              onChange={(e) => handleAnnexDescriptionChange(idx, e.target.value)}
+                              placeholder={`مثال: مخزن`}
+                              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none bg-white"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
@@ -455,7 +623,9 @@ export default function AddProjectModal({ isOpen, onClose, onSave, onSuccess }: 
                     <tr>
                       <th className="px-6 py-3 font-medium">رقم الوحدة</th>
                       <th className="px-6 py-3 font-medium">الدور</th>
-                      <th className="px-6 py-3 font-medium">الاتجاه / الوصف</th>
+                      <th className="px-6 py-3 font-medium">الاتجاه</th>
+                      <th className="px-6 py-3 font-medium">المساحة</th>
+                      <th className="px-6 py-3 font-medium">الوصف</th>
                       <th className="px-6 py-3 font-medium">النوع</th>
                     </tr>
                   </thead>
@@ -465,6 +635,8 @@ export default function AddProjectModal({ isOpen, onClose, onSave, onSuccess }: 
                         <td className="px-6 py-3 font-mono font-bold text-blue-600">#{unit.unitNumber}</td>
                         <td className="px-6 py-3">{unit.floorLabel}</td>
                         <td className="px-6 py-3 font-medium">{unit.directionLabel}</td>
+                        <td className="px-6 py-3">{unit.areaSqm ? `${unit.areaSqm} م²` : '-'}</td>
+                        <td className="px-6 py-3">{unit.description || '-'}</td>
                         <td className="px-6 py-3">
                           <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
                             unit.type === 'annex' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'

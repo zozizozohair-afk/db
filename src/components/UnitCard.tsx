@@ -56,6 +56,22 @@ export default function UnitCard({ unit, showProjectName = false, projectName }:
           </span>
         </div>
         
+        {(unit as any).area_sqm && (
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-gray-500">المساحة:</span>
+            <span className="font-medium text-gray-900">{(unit as any).area_sqm} م²</span>
+          </div>
+        )}
+        
+        {(unit as any).description && (
+          <div className="pt-1">
+            <span className="text-xs text-gray-500 block mb-1">الوصف:</span>
+            <p className="text-xs text-gray-700 line-clamp-2 bg-gray-50 p-2 rounded-lg">
+              {(unit as any).description}
+            </p>
+          </div>
+        )}
+        
         {unit.client_name && (
           <div className="flex items-center justify-between text-xs">
             <span className="text-gray-500">العميل:</span>

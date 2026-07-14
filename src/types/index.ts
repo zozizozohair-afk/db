@@ -4,6 +4,9 @@ export interface Project {
   name: string;
   project_number: string;
   deed_number: string;
+  deed_date?: string | null; // تاريخ الصك
+  plot_number?: string | null; // رقم القطعة
+  plan_number?: string | null; // رقم المخطط
   orientation: string;
   floors_count: number;
   units_per_floor: number;
@@ -18,6 +21,7 @@ export interface Project {
   location_lat?: number | null;
   location_lng?: number | null;
   location_url?: string | null;
+  location_text?: string | null;
 }
 
 export interface Unit {
@@ -29,6 +33,8 @@ export interface Unit {
   floor_label: string;
   direction_label: string;
   type: 'apartment' | 'annex';
+  area_sqm?: number | null; // مساحة الشقة بالمتر المربع
+  description?: string | null; // وصف الشقة
   electricity_meter: string;
   water_meter: string;
   client_name: string;
@@ -103,6 +109,7 @@ export interface UnitModel {
   name: string;
   description?: string;
   location_url?: string | null;
+  area_sqm?: number | null;
   files: UnitModelFile[];
 }
 
@@ -112,6 +119,7 @@ export interface UnitModelAsset {
   model_id: string;
   project_id: string;
   kind: 'image' | 'video' | 'file';
+  display_role?: 'cover' | 'facade' | null;
   title?: string | null;
   file_url: string;
   file_path: string;
@@ -225,3 +233,144 @@ export type CrmTask = {
   status: CrmTaskStatus;
   priority: CrmTaskPriority;
 };
+
+export const PAYMENT_METHODS = {
+  cash: 'كاش',
+  cheque: 'شيك',
+  transfer: 'حواله'
+};
+
+export const CONTRACT_LOG_ACTIONS = {
+  contract_created: 'إضافة عقد',
+  contract_updated: 'تعديل عقد',
+  contract_deleted: 'حذف عقد',
+  contract_archived: 'أرشفة عقد',
+  payment_added: 'إضافة دفعة',
+  payment_updated: 'تعديل دفعة',
+  payment_deleted: 'حذف دفعة',
+  unit_client_synced: 'مزامنة العميل للوحدة',
+  debt_synced: 'مزامنة المديونية',
+  agent_updated: 'تعديل الوكيل',
+  contract_printed: 'طباعة عقد'
+};
+
+export interface ContractLog {
+  id: string;
+  created_at: string;
+  contract_id?: string | null;
+  actor_id?: string | null;
+  actor_name?: string | null;
+  action: string;
+  entity_type?: string | null;
+  entity_id?: string | null;
+  metadata?: Record<string, any> | null;
+}
+
+export interface ContractPayment {
+  id: string;
+  created_at: string;
+  contract_id: string;
+  amount: number;
+  payment_date: string;
+  notes?: string | null;
+  payment_method?: keyof typeof PAYMENT_METHODS | null;
+  transaction_number?: string | null;
+  statement?: string | null;
+}
+
+export interface ContractObligation {
+  id: string;
+  created_at: string;
+  contract_id: string;
+  amount: number;
+  description: string;
+  due_date?: string | null;
+  paid?: boolean;
+}
+
+export interface NewContract {
+  id?: string;
+  created_at?: string;
+  project_id: string;
+  unit_id: string;
+  client_id?: string | null;
+  source_contract_id?: string | null;
+  resale_contract_id?: string | null;
+  resale_signed_at?: string | null;
+  settlement_source_contract_id?: string | null;
+  settlement_resale_contract_id?: string | null;
+  settlement_date?: string | null;
+  settlement_sale_price?: number | null;
+  settlement_new_owner_client_id?: string | null;
+  settlement_new_owner_name?: string | null;
+  settlement_new_owner_id_number?: string | null;
+  settlement_new_owner_phone?: string | null;
+  financial_settlement_contract_id?: string | null;
+  financial_settlement_signed_at?: string | null;
+  settlement_new_client_id?: string | null;
+  settlement_new_client_applied_at?: string | null;
+  deed_source_contract_id?: string | null;
+  deed_waiver_contract_id?: string | null;
+  deed_settlement_contract_id?: string | null;
+  deed_recipient_client_id?: string | null;
+  deed_recipient_name?: string | null;
+  deed_recipient_id_number?: string | null;
+  deed_recipient_phone?: string | null;
+  deed_recipient_source?: string | null;
+  deed_unit_deed_number?: string | null;
+  deed_meter_number?: string | null;
+  deed_parking_number?: string | null;
+  contract_date: string;
+  total_amount: number;
+  paid_amount: number;
+  completion_period_months: number; // 12 شهر افتراضي
+  payment_grace_period_months?: number | null;
+  status: 'draft' | 'active' | 'completed';
+  type: keyof typeof CONTRACT_TYPES;
+  created_by_id?: string | null;
+  created_by_name?: string | null;
+  notes?: string | null;
+  client_name?: string | null;
+  client_id_number?: string | null;
+  client_phone?: string | null;
+  agent_name?: string | null;
+  agent_id_number?: string | null;
+  agency_number?: string | null;
+  agency_date?: string | null;
+  resale_agreed_amount?: number | null;
+  resale_fee?: number | null;
+  marketing_fee?: number | null;
+  company_service_fee?: number | null;
+  lawyer_fee?: number | null;
+  is_legacy?: boolean | null;
+  is_archived?: boolean | null;
+  archived_at?: string | null;
+  archived_by_id?: string | null;
+  archived_by_name?: string | null;
+  is_waived?: boolean | null;
+  waived_at?: string | null;
+  waived_previous_client_id?: string | null;
+  waived_previous_client_name?: string | null;
+  waived_previous_client_id_number?: string | null;
+  waived_previous_client_phone?: string | null;
+  waived_to_client_id?: string | null;
+  waived_to_client_name?: string | null;
+  waived_to_client_id_number?: string | null;
+  waived_to_client_phone?: string | null;
+}
+
+export const CONTRACT_STATUSES = {
+  draft: 'مسودة',
+  active: 'نشط',
+  completed: 'مكتمل'
+};
+
+export interface FullContract extends NewContract {
+  id: string;
+  created_at: string;
+  project?: Project | null;
+  unit?: Unit | null;
+  client?: Client | null;
+  obligations?: ContractObligation[];
+  payments?: ContractPayment[];
+}

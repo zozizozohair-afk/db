@@ -398,6 +398,7 @@ export default function CrmDashboardPage() {
     if (status === 'available') return 'bg-green-100 text-green-700';
     if (status === 'sold') return 'bg-red-100 text-red-700';
     if (status === 'sold_to_other') return 'bg-gray-100 text-gray-700';
+    if (status === 'transferred_to_other') return 'bg-slate-100 text-slate-700';
     if (status === 'pending_sale') return 'bg-orange-100 text-orange-700';
     if (status === 'resale' || status === 'for_resale') return 'bg-purple-100 text-purple-700';
     return 'bg-gray-100 text-gray-700';
@@ -414,7 +415,7 @@ export default function CrmDashboardPage() {
     if (status === 'under_construction') return 'تحت الإنشاء';
     if (status === 'deed_completed') return 'تم الإفراغ';
     if (status === 'resold') return 'أعيد بيعها';
-    if (status === 'transferred_to_other') return 'منقولة لغيره';
+    if (status === 'transferred_to_other') return 'مفرغة لآخر';
     return status;
   };
 

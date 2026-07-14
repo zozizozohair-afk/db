@@ -33,7 +33,8 @@ import {
   Copy,
   Image as ImageIcon,
   Upload,
-  Trash
+  Trash,
+  Calendar
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -47,6 +48,7 @@ export default function ProjectDetails({ id }: { id: string }) {
   const [activeTab, setActiveTab] = useState<'units' | 'models' | 'files' | 'gallery' | 'settings' | 'edit_basic' | 'send_files'>('units');
   const [isExcelMode, setIsExcelMode] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [publishSaving, setPublishSaving] = useState(false);
   const [galleryItems, setGalleryItems] = useState<
     Array<{ id: string; created_at: string; title: string; type: string; file_url: string; file_path: string }>
   >([]);
@@ -60,9 +62,13 @@ export default function ProjectDetails({ id }: { id: string }) {
     project_number: '',
     orientation: 'North' as 'North' | 'South' | 'East' | 'West',
     deed_number: '',
+    deed_date: '',
+    plot_number: '',
+    plan_number: '',
     location_lat: null as number | null,
     location_lng: null as number | null,
-    location_url: ''
+    location_url: '',
+    location_text: ''
   });
   const [isSavingBasic, setIsSavingBasic] = useState(false);
 
@@ -163,9 +169,13 @@ export default function ProjectDetails({ id }: { id: string }) {
         project_number: projectData.project_number,
         orientation: projectData.orientation as any,
         deed_number: projectData.deed_number || '',
+        deed_date: (projectData as any).deed_date || '',
+        plot_number: (projectData as any).plot_number || '',
+        plan_number: (projectData as any).plan_number || '',
         location_lat: typeof projectData.location_lat === 'number' ? projectData.location_lat : null,
         location_lng: typeof projectData.location_lng === 'number' ? projectData.location_lng : null,
-        location_url: projectData.location_url || ''
+        location_url: projectData.location_url || '',
+        location_text: (projectData as any).location_text || ''
       });
 
       // 2. Fetch Units
@@ -185,6 +195,7 @@ export default function ProjectDetails({ id }: { id: string }) {
     }
   };
 
+
   const handleSaveBasicData = async () => {
     if (!project) return;
     try {
@@ -199,19 +210,40 @@ export default function ProjectDetails({ id }: { id: string }) {
         (hasCoords ? buildOSMLink(editBasicData.location_lat as number, editBasicData.location_lng as number) : null);
 
       // 1. Update Project
-      const { error: updateError } = await supabase
+      let updateRes = await supabase
         .from('projects')
         .update({
           project_number: editBasicData.project_number,
           orientation: newOrientation,
           deed_number: editBasicData.deed_number,
+          deed_date: editBasicData.deed_date || null,
+          plot_number: editBasicData.plot_number || null,
+          plan_number: editBasicData.plan_number || null,
           location_lat: hasCoords ? editBasicData.location_lat : null,
           location_lng: hasCoords ? editBasicData.location_lng : null,
-          location_url: finalLocationUrl
+          location_url: finalLocationUrl,
+          location_text: editBasicData.location_text.trim() || null
         })
         .eq('id', id);
 
-      if (updateError) throw updateError;
+      if (updateRes.error && String(updateRes.error.message || '').toLowerCase().includes('column')) {
+        alert(
+          'العمود location_text غير موجود في جدول projects.\n\nنفّذ هذا في Supabase SQL Editor:\n\nalter table public.projects add column if not exists location_text text;'
+        );
+        updateRes = await supabase
+          .from('projects')
+          .update({
+            project_number: editBasicData.project_number,
+            orientation: newOrientation,
+            deed_number: editBasicData.deed_number,
+            location_lat: hasCoords ? editBasicData.location_lat : null,
+            location_lng: hasCoords ? editBasicData.location_lng : null,
+            location_url: finalLocationUrl
+          })
+          .eq('id', id);
+      }
+
+      if (updateRes.error) throw updateRes.error;
 
       // 2. Update Units if orientation changed (and units_per_floor is 4)
       if (isOrientationChanged && project.units_per_floor === 4) {
@@ -300,6 +332,27 @@ export default function ProjectDetails({ id }: { id: string }) {
     }
   };
 
+  const togglePublish = async () => {
+    if (!project) return;
+    setPublishSaving(true);
+    try {
+      const next = !Boolean((project as any)?.public_enabled);
+      const res = await supabase.from('projects').update({ public_enabled: next }).eq('id', project.id);
+      if (res.error && String(res.error.message || '').toLowerCase().includes('column')) {
+        alert(
+          'العمود public_enabled غير موجود في جدول projects.\n\nنفّذ هذا في Supabase SQL Editor:\n\nalter table public.projects add column if not exists public_enabled boolean not null default false;'
+        );
+        return;
+      }
+      if (res.error) throw res.error;
+      setProject((prev) => (prev ? ({ ...(prev as any), public_enabled: next } as any) : prev));
+    } catch (e: any) {
+      alert(e?.message || 'تعذر تحديث حالة النشر');
+    } finally {
+      setPublishSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-50">
@@ -338,6 +391,19 @@ export default function ProjectDetails({ id }: { id: string }) {
             <div className="text-sm text-gray-500 hidden sm:block">
               آخر تحديث: {new Date(project.created_at).toLocaleDateString('ar-SA')}
             </div>
+            <button
+              onClick={togglePublish}
+              disabled={publishSaving}
+              className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold transition-colors border disabled:opacity-50 ${
+                Boolean((project as any)?.public_enabled)
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                  : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+              }`}
+              title="نشر/إيقاف النشر في صفحة الهبوط"
+            >
+              <Share2 size={16} />
+              {publishSaving ? 'جارٍ التحديث...' : Boolean((project as any)?.public_enabled) ? 'منشور' : 'غير منشور'}
+            </button>
             <button
               onClick={handleDeleteProject}
               disabled={deleting}
@@ -466,7 +532,7 @@ export default function ProjectDetails({ id }: { id: string }) {
         
         {/* Project Info Card */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-          <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             
             <div className="flex items-start gap-3">
               <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
@@ -475,6 +541,36 @@ export default function ProjectDetails({ id }: { id: string }) {
               <div>
                 <p className="text-sm text-gray-500 mb-1">رقم الصك الأم</p>
                 <p className="font-mono font-medium text-gray-900">{project.deed_number || '-'}</p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-blue-100 text-blue-700 rounded-lg">
+                <Calendar size={20} />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500 mb-1">تاريخ الصك</p>
+                <p className="font-mono font-medium text-gray-900">{(project as any).deed_date ? new Date((project as any).deed_date).toLocaleDateString('ar-SA') : '-'}</p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-teal-50 text-teal-600 rounded-lg">
+                <MapPin size={20} />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500 mb-1">رقم القطعة</p>
+                <p className="font-mono font-medium text-gray-900">{(project as any).plot_number || '-'}</p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-purple-50 text-purple-600 rounded-lg">
+                <Layers size={20} />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500 mb-1">رقم المخطط</p>
+                <p className="font-mono font-medium text-gray-900">{(project as any).plan_number || '-'}</p>
               </div>
             </div>
 
@@ -509,7 +605,7 @@ export default function ProjectDetails({ id }: { id: string }) {
             </div>
 
             <div className="flex items-start gap-3">
-              <div className="p-2 bg-purple-50 text-purple-600 rounded-lg">
+              <div className="p-2 bg-pink-50 text-pink-600 rounded-lg">
                 <MapPin size={20} />
               </div>
               <div>
@@ -664,6 +760,47 @@ export default function ProjectDetails({ id }: { id: string }) {
                 />
               </div>
 
+              {/* Deed Date */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  تاريخ الصك
+                </label>
+                <input
+                  type="date"
+                  value={editBasicData.deed_date}
+                  onChange={(e) => setEditBasicData({...editBasicData, deed_date: e.target.value})}
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              {/* Plot Number */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  رقم القطعة
+                </label>
+                <input
+                  type="text"
+                  value={editBasicData.plot_number}
+                  onChange={(e) => setEditBasicData({...editBasicData, plot_number: e.target.value})}
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="رقم القطعة الأرضية"
+                />
+              </div>
+
+              {/* Plan Number */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  رقم المخطط
+                </label>
+                <input
+                  type="text"
+                  value={editBasicData.plan_number}
+                  onChange={(e) => setEditBasicData({...editBasicData, plan_number: e.target.value})}
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="رقم المخطط المعتمد"
+                />
+              </div>
+
               {/* Orientation */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -739,6 +876,16 @@ export default function ProjectDetails({ id }: { id: string }) {
                       onChange={(e) => setEditBasicData({ ...editBasicData, location_url: e.target.value })}
                       className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-600 outline-none"
                       placeholder="ضع رابط OpenStreetMap أو Google Maps"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700">موقع المشروع (نص)</label>
+                    <input
+                      type="text"
+                      value={editBasicData.location_text}
+                      onChange={(e) => setEditBasicData({ ...editBasicData, location_text: e.target.value })}
+                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-600 outline-none"
+                      placeholder="مثال: الرياض - حي الملقا"
                     />
                   </div>
                   <div className="space-y-2">
@@ -857,6 +1004,7 @@ export default function ProjectDetails({ id }: { id: string }) {
             )}
           </div>
         )}
+
 
         {/* Tab Content */}
         {activeTab === 'units' && (

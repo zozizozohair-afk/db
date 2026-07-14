@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "217589708524",
+    "project_id": "msakin-2b6ae",
+    "storage_bucket": "msakin-2b6ae.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:217589708524:android:15b42e52e0dfd962acd7c9",
+        "android_client_info": {
+          "package_name": "msakin.al.rfahih.zizo.msakinal"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCJR0t2y730zyjFoK5SYvOTwoe5bZHMCIk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

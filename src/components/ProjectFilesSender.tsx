@@ -38,9 +38,10 @@ export default function ProjectFilesSender({ project, units }: ProjectFilesSende
   const statusMap: Record<string, { label: string, color: string }> = {
     'available': { label: 'غير مفرغة', color: 'bg-green-100 text-green-700' },
     'sold': { label: 'مباعة', color: 'bg-red-100 text-red-700' },
-    'pending_sale': { label: 'قيد البيع', color: 'bg-orange-100 text-orange-700' },
+    'pending_sale': { label: 'بيع على الخارطة', color: 'bg-orange-100 text-orange-700' },
     'for_resale': { label: 'إعادة بيع', color: 'bg-purple-100 text-purple-700' },
     'sold_to_other': { label: 'مباعة لآخر', color: 'bg-gray-100 text-gray-700' },
+    'transferred_to_other': { label: 'مفرغة لآخر', color: 'bg-slate-100 text-slate-700' },
   };
 
   const toggleStatusFilter = (status: string) => {

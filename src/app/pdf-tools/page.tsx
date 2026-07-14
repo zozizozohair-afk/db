@@ -534,14 +534,14 @@ export default function PdfToolsPage() {
     
     try {
       setProcessing(true);
-      // Dynamically import pdfjs-dist to avoid SSR/Build issues
-      const pdfjsLib = await import('pdfjs-dist');
-      pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+      const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+      const workerUrl = new URL('pdfjs-dist/legacy/build/pdf.worker.min.mjs', import.meta.url);
+      (pdfjsLib as any).GlobalWorkerOptions.workerSrc = workerUrl.toString();
 
       const file = files[0];
       const arrayBuffer = await file.arrayBuffer();
       
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const pdf = await (pdfjsLib as any).getDocument({ data: arrayBuffer }).promise;
       const pageCount = pdf.numPages;
       const imageUrls: string[] = [];
 

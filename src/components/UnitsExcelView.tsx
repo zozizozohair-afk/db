@@ -351,7 +351,7 @@ export default function UnitsExcelView({ units: initialUnits, onUpdate, onCancel
               <option value="sold">مباعة</option>
               <option value="sold_to_other">مباعة لآخر</option>
               <option value="resale">إعادة بيع</option>
-              <option value="pending_sale">قيد البيع</option>
+              <option value="pending_sale">بيع على الخارطة</option>
             </select>
             <button
               onClick={handleBulkStatusUpdate}
@@ -751,7 +751,7 @@ export default function UnitsExcelView({ units: initialUnits, onUpdate, onCancel
                     <option value="sold" className="text-red-600">مباعة</option>
                     <option value="sold_to_other" className="text-gray-600">مباعة لآخر</option>
                     <option value="resale" className="text-purple-600">إعادة بيع</option>
-                    <option value="pending_sale" className="text-orange-600">قيد البيع</option>
+                    <option value="pending_sale" className="text-orange-600">بيع على الخارطة</option>
                   </select>
                 </td>
                 <td className="p-0 border-r border-gray-200">

@@ -27,21 +27,21 @@ export const getDirAr = (dir: string) => DIRECTIONS_AR[dir as keyof typeof DIREC
 // Right is East, Left is West.
 // Front is North. Rear is South.
 
-const RIGHT_OF: Record<string, Direction> = {
+export const RIGHT_OF: Record<string, Direction> = {
   North: 'East',
   South: 'West',
   East: 'South',
   West: 'North',
 };
 
-const LEFT_OF: Record<string, Direction> = {
+export const LEFT_OF: Record<string, Direction> = {
   North: 'West',
   South: 'East',
   East: 'North',
   West: 'South',
 };
 
-const OPPOSITE_OF: Record<string, Direction> = {
+export const OPPOSITE_OF: Record<string, Direction> = {
   North: 'South',
   South: 'North',
   East: 'West',
@@ -54,6 +54,8 @@ export interface GeneratedUnit {
   floorLabel: string;
   directionLabel: string;
   type: 'apartment' | 'annex';
+  areaSqm?: number | null;
+  description?: string | null;
 }
 
 export const generateUnitsLogic = (
@@ -62,7 +64,11 @@ export const generateUnitsLogic = (
   unitsPerFloor: number,
   hasAnnex: boolean,
   annexCount: number, // 1 or 2
-  customFloorDirections: string[] = [] // Used if unitsPerFloor != 4
+  customFloorDirections: string[] = [], // Used if unitsPerFloor != 4
+  customFloorAreas: (number | null)[] = [],
+  customFloorDescriptions: string[] = [],
+  annexAreas: (number | null)[] = [],
+  annexDescriptions: string[] = []
 ): GeneratedUnit[] => {
   const units: GeneratedUnit[] = [];
   let currentUnitNumber = 1;
@@ -125,6 +131,8 @@ export const generateUnitsLogic = (
         floorLabel: `الدور ${floor}`,
         directionLabel: dirLabel,
         type: 'apartment',
+        areaSqm: customFloorAreas[i],
+        description: customFloorDescriptions[i] || null,
       });
     }
   }
@@ -143,6 +151,8 @@ export const generateUnitsLogic = (
         floorLabel: annexFloorLabel,
         directionLabel: `ملحق ${getDirAr(rightDir)}ي`, // e.g. ملحق شرقي
         type: 'annex',
+        areaSqm: annexAreas[0],
+        description: annexDescriptions[0] || null,
       });
 
       // Annex 2: Left of Project
@@ -153,6 +163,8 @@ export const generateUnitsLogic = (
         floorLabel: annexFloorLabel,
         directionLabel: `ملحق ${getDirAr(leftDir)}ي`, // e.g. ملحق غربي
         type: 'annex',
+        areaSqm: annexAreas[1],
+        description: annexDescriptions[1] || null,
       });
     } else {
       // If 1 Annex, usually just "Annex" or based on project dir?
@@ -165,6 +177,8 @@ export const generateUnitsLogic = (
         floorLabel: annexFloorLabel,
         directionLabel: `ملحق ${getDirAr(projectOrientation)}ي`,
         type: 'annex',
+        areaSqm: annexAreas[0],
+        description: annexDescriptions[0] || null,
       });
     }
   }
