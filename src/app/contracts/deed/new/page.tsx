@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, CheckCircle2, FileSignature, Loader2, Save, Search, UserPlus } from 'lucide-react';
@@ -21,7 +21,7 @@ const getContractTypeLabel = (type: string | null | undefined) => {
   return (CONTRACT_TYPES as Record<string, string>)[type] || type;
 };
 
-export default function NewDeedPage() {
+function NewDeedPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const editDeedId = String(searchParams.get('edit') || '').trim();
@@ -892,5 +892,22 @@ export default function NewDeedPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function NewDeedPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-gray-50" dir="rtl">
+          <div className="flex items-center gap-3 text-lg font-bold text-gray-700">
+            <Loader2 size={24} className="animate-spin text-blue-600" />
+            جاري تحميل صفحة الإفراغ...
+          </div>
+        </div>
+      }
+    >
+      <NewDeedPageContent />
+    </Suspense>
   );
 }
