@@ -6,7 +6,12 @@ const config = {
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
-    extend: {},
+    extend: {
+      fontFamily: {
+        sans: ['var(--font-cairo)', 'var(--font-agc)', 'Tahoma', 'Arial', 'sans-serif'],
+        display: ['var(--font-arabic-ui)', 'var(--font-agc)', 'Tahoma', 'Arial', 'sans-serif'],
+      },
+    },
   },
   plugins: [],
 }

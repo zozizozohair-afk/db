@@ -19,7 +19,7 @@ interface ProjectFilesSenderProps {
   units: Unit[];
 }
 
-type FileCategory = 'deed' | 'sorting_record' | 'modifications' | 'contract';
+type FileCategory = 'deed' | 'sorting_record' | 'electricity_release' | 'modifications' | 'contract';
 
 export default function ProjectFilesSender({ project, units }: ProjectFilesSenderProps) {
   const [selectedUnits, setSelectedUnits] = useState<string[]>([]);
@@ -31,6 +31,7 @@ export default function ProjectFilesSender({ project, units }: ProjectFilesSende
   const categories: { id: FileCategory, label: string }[] = [
     { id: 'deed', label: 'الصك العقاري' },
     { id: 'sorting_record', label: 'محضر الفرز' },
+    { id: 'electricity_release', label: 'شهادة إطلاق تيار' },
     { id: 'modifications', label: 'ملف التعديلات' },
     { id: 'contract', label: 'عقد البيع' },
   ];
@@ -84,6 +85,7 @@ export default function ProjectFilesSender({ project, units }: ProjectFilesSende
     switch (category) {
       case 'deed': return unit.deed_file_url;
       case 'sorting_record': return unit.sorting_record_file_url;
+      case 'electricity_release': return unit.electricity_release_file_url;
       case 'modifications': return unit.modifications_file_url;
       default: return null;
     }

@@ -58,6 +58,7 @@ export interface Unit {
   title_deed_owner_id?: string;
   title_deed_owner_phone?: string;
   sorting_record_file_url?: string;
+  electricity_release_file_url?: string;
   modifications_file_url?: string;
   modification_client_confirmed?: boolean;
   modification_engineer_reviewed?: boolean;
@@ -288,6 +289,20 @@ export interface ContractObligation {
   paid?: boolean;
 }
 
+export type ContractAttachmentCategory = 'receipt' | 'identity' | 'unit_plan';
+
+export interface ContractAttachment {
+  id: string;
+  created_at: string;
+  contract_id: string;
+  category: ContractAttachmentCategory;
+  file_name: string;
+  file_type: 'pdf' | 'image';
+  mime_type?: string | null;
+  file_url: string;
+  file_path: string;
+}
+
 export interface NewContract {
   id?: string;
   created_at?: string;
@@ -373,4 +388,5 @@ export interface FullContract extends NewContract {
   client?: Client | null;
   obligations?: ContractObligation[];
   payments?: ContractPayment[];
+  attachments?: ContractAttachment[];
 }

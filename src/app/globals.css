@@ -17,6 +17,42 @@
 body {
   background: var(--background);
   color: var(--foreground);
+  font-family: var(--font-cairo), var(--font-agc), Tahoma, Arial, sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+@media screen {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  .font-display {
+    font-family: var(--font-arabic-ui), var(--font-agc), Tahoma, Arial, sans-serif;
+  }
+
+  .contract-print-container,
+  .contract-print-container *,
+  .contract-print-container h1,
+  .contract-print-container h2,
+  .contract-print-container h3,
+  .contract-print-container h4,
+  .contract-print-container h5,
+  .contract-print-container h6,
+  .contract-print-container .font-display,
+  .contract-print-container button,
+  .contract-print-container input,
+  .contract-print-container select,
+  .contract-print-container textarea {
+    font-family: 'AmiriLocal', serif !important;
+  }
 }
 
 /* Custom Scrollbar */

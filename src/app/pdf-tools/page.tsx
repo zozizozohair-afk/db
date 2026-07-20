@@ -50,7 +50,7 @@ export default function PdfToolsPage() {
   const [units, setUnits] = useState<Unit[]>([]);
   const [selectedProject, setSelectedProject] = useState('');
   const [selectedUnit, setSelectedUnit] = useState('');
-  const [linkType, setLinkType] = useState('other'); // deed, sorting, contract, other
+  const [linkType, setLinkType] = useState('other'); // deed, sorting, electricity_release, contract, other
   const [isUploading, setIsUploading] = useState(false);
 
   // Editor State
@@ -214,6 +214,12 @@ export default function PdfToolsPage() {
           .update({ sorting_record_file_url: publicUrl })
           .eq('id', item.unitId);
         if (updateError) throw updateError;
+      } else if (linkType === 'electricity_release') {
+        const { error: updateError } = await supabase
+          .from('units')
+          .update({ electricity_release_file_url: publicUrl })
+          .eq('id', item.unitId);
+        if (updateError) throw updateError;
       } else {
         const { error: contractError } = await supabase
           .from('unit_contracts')
@@ -249,7 +255,13 @@ export default function PdfToolsPage() {
     if (namingPattern === 'project_unit_type') {
        const pName = projects.find(p => p.id === selectedProject)?.name || 'Project';
        const uNumber = units.find(u => u.id === (unitId || selectedUnit))?.unit_number || 'Unit';
-       const typeName = linkType === 'deed' ? 'صك' : linkType === 'sorting' ? 'فرز' : 'مستند';
+       const typeName = linkType === 'deed'
+         ? 'صك'
+         : linkType === 'sorting'
+           ? 'فرز'
+           : linkType === 'electricity_release'
+             ? 'إطلاق_تيار'
+             : 'مستند';
        return `${pName}_${uNumber}_${typeName}_${pageIndex}.pdf`;
     }
     return `page_${pageIndex}.pdf`;
@@ -1179,6 +1191,7 @@ export default function PdfToolsPage() {
                     <option value="other">ملفات أخرى</option>
                     <option value="deed">صك</option>
                     <option value="sorting">محضر فرز</option>
+                    <option value="electricity_release">شهادة إطلاق تيار</option>
                     <option value="contract">عقد</option>
                   </select>
                   {linkType === 'other' && (

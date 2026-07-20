@@ -20,7 +20,18 @@ type Agent = {
   agencyDate?: string;
 };
 
+type ContractPrintAttachment = {
+  id?: string;
+  category?: string;
+  file_name: string;
+  file_type: 'pdf' | 'image';
+  mime_type?: string | null;
+  file_url: string;
+  file_path?: string;
+};
+
 type ContractPrintData = {
+  contractId?: string;
   projectNumber: string;
   unitNumber: string;
   clientName: string;
@@ -43,6 +54,7 @@ type ContractPrintData = {
   regionNumber: string;
   area: string | number;
   payments: Payment[];
+  attachments?: ContractPrintAttachment[];
   agent?: Agent;
 };
 
@@ -67,6 +79,7 @@ const defaultData: ContractPrintData = {
   regionNumber: '____',
   area: '160',
   payments: [],
+  attachments: [],
 };
 
 function money(value: number | string | undefined) {
@@ -89,6 +102,56 @@ function getPaymentStatusDescription(contract: ContractPrintData) {
   const remaining = total - paid;
 
   return `دفع مبلغ وقدره ${money(paid)} يتم دفعة فورا، ويتم دفع المتبقي خلال مدة ${contract.deliveryDays} يوما تبدأ من تاريخه، والمتبقي هو ${money(remaining)}.`;
+}
+
+const PDF_PAGE_WIDTH = 595.28;
+const PDF_PAGE_HEIGHT = 841.89;
+const PDF_PAGE_PADDING = 18;
+const ATTACHMENT_PAGE_MARGIN = 28;
+
+function blobToDataUrl(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('تعذر قراءة الملف'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function loadImageElement(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new window.Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('تعذر تحميل الصورة'));
+    img.src = src;
+  });
+}
+
+async function imageBlobToPngBytes(blob: Blob) {
+  const dataUrl = await blobToDataUrl(blob);
+  const img = await loadImageElement(dataUrl);
+  const canvas = document.createElement('canvas');
+  canvas.width = img.naturalWidth || img.width;
+  canvas.height = img.naturalHeight || img.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('تعذر تجهيز الصورة');
+  }
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0);
+  const pngDataUrl = canvas.toDataURL('image/png');
+  return fetch(pngDataUrl).then((res) => res.arrayBuffer());
+}
+
+function getContainedSize(p: { width: number; height: number; maxWidth: number; maxHeight: number }) {
+  const safeWidth = Math.max(p.width, 1);
+  const safeHeight = Math.max(p.height, 1);
+  const scale = Math.min(p.maxWidth / safeWidth, p.maxHeight / safeHeight);
+  return {
+    width: safeWidth * scale,
+    height: safeHeight * scale,
+  };
 }
 
 function Header() {
@@ -279,6 +342,7 @@ export default function ContractPrintPage({ data = defaultData, autoPrint = fals
       }
 
       const pdf = await PDFDocument.create();
+      const skippedAttachments: string[] = [];
 
       for (const pageElement of pageElements) {
         const dataUrl = await toPng(pageElement, {
@@ -303,6 +367,61 @@ export default function ContractPrintPage({ data = defaultData, autoPrint = fals
         });
       }
 
+      for (const attachment of contract.attachments || []) {
+        try {
+          const response = await fetch(attachment.file_url);
+          if (!response.ok) {
+            throw new Error(`فشل تحميل ${attachment.file_name}`);
+          }
+
+          const blob = await response.blob();
+          if (attachment.file_type === 'pdf') {
+            const attachmentPdfBytes = await blob.arrayBuffer();
+            const attachmentPdf = await PDFDocument.load(attachmentPdfBytes);
+            for (const sourcePage of attachmentPdf.getPages()) {
+              const embeddedPage = await pdf.embedPage(sourcePage);
+              const page = pdf.addPage([PDF_PAGE_WIDTH, PDF_PAGE_HEIGHT]);
+              const maxWidth = PDF_PAGE_WIDTH - (ATTACHMENT_PAGE_MARGIN * 2);
+              const maxHeight = PDF_PAGE_HEIGHT - (ATTACHMENT_PAGE_MARGIN * 2);
+              const contained = getContainedSize({
+                width: embeddedPage.width,
+                height: embeddedPage.height,
+                maxWidth,
+                maxHeight,
+              });
+              page.drawPage(embeddedPage, {
+                x: (PDF_PAGE_WIDTH - contained.width) / 2,
+                y: (PDF_PAGE_HEIGHT - contained.height) / 2,
+                width: contained.width,
+                height: contained.height,
+              });
+            }
+            continue;
+          }
+
+          const imageBytes = await imageBlobToPngBytes(blob);
+          const embeddedImage = await pdf.embedPng(imageBytes);
+          const page = pdf.addPage([PDF_PAGE_WIDTH, PDF_PAGE_HEIGHT]);
+          const maxWidth = PDF_PAGE_WIDTH - (ATTACHMENT_PAGE_MARGIN * 2);
+          const maxHeight = PDF_PAGE_HEIGHT - (ATTACHMENT_PAGE_MARGIN * 2);
+          const contained = getContainedSize({
+            width: embeddedImage.width,
+            height: embeddedImage.height,
+            maxWidth,
+            maxHeight,
+          });
+          page.drawImage(embeddedImage, {
+            x: (PDF_PAGE_WIDTH - contained.width) / 2,
+            y: (PDF_PAGE_HEIGHT - contained.height) / 2,
+            width: contained.width,
+            height: contained.height,
+          });
+        } catch (error) {
+          console.error('Error appending attachment to contract PDF:', attachment.file_name, error);
+          skippedAttachments.push(attachment.file_name);
+        }
+      }
+
       const pdfBytes = await pdf.save();
       const pdfBuffer = new Uint8Array(pdfBytes).buffer as ArrayBuffer;
       const blob = new Blob([pdfBuffer], { type: 'application/pdf' });
@@ -314,13 +433,16 @@ export default function ContractPrintPage({ data = defaultData, autoPrint = fals
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
+      if (skippedAttachments.length > 0) {
+        alert(`تم تحميل العقد، لكن تعذر إرفاق بعض الملفات: ${skippedAttachments.join('، ')}`);
+      }
     } catch (error) {
       console.error('Error downloading PDF:', error);
       alert('حدث خطأ أثناء إنشاء ملف PDF');
     } finally {
       setIsDownloadingPdf(false);
     }
-  }, [contract.projectNumber, contract.unitNumber]);
+  }, [contract.attachments, contract.projectNumber, contract.unitNumber]);
 
   React.useEffect(() => {
     if (autoPrint) {
@@ -370,7 +492,7 @@ export default function ContractPrintPage({ data = defaultData, autoPrint = fals
 
   return (
     <div ref={containerRef} dir="rtl" className="contract-print-container" style={{ fontFamily: "'AmiriLocal', serif", fontSize: '18px', overflow: 'visible', height: 'auto' }}>
-      {autoPrint && onClose && (
+      {onClose && (
         <div className="print-buttons-container" style={{ padding: '20px', textAlign: 'center', position: 'sticky', top: 0, background: 'white', zIndex: 1000, borderBottom: '1px solid #e5e7eb' }}>
           <button onClick={onClose} style={{
             background: '#dc2626',
@@ -409,7 +531,7 @@ export default function ContractPrintPage({ data = defaultData, autoPrint = fals
           </button>
         </div>
       )}
-      {!autoPrint && (
+      {!onClose && (
         <div className="print-buttons-container" style={{ padding: '20px', textAlign: 'center' }}>
           <button onClick={downloadPdf} disabled={isDownloadingPdf} style={{
             background: isDownloadingPdf ? '#9ca3af' : '#059669',
@@ -561,9 +683,9 @@ export default function ContractPrintPage({ data = defaultData, autoPrint = fals
         <h2 style={{ fontSize: '22px', marginTop: '20px', fontWeight: 'bold' }}>القسم الثاني: مواصفات البناء:</h2>
         <h3 style={{ fontSize: '20px', fontWeight: 'bold', marginTop: '15px' }}>مرحلة البناء والعظم:</h3>
         <p style={{ fontSize: '18px', marginTop: '5px', lineHeight: 2 }}>1- عمل لبشة أو قواعد حسب ما يقرره المكتب الهندسي.</p>
-        <p style={{ fontSize: '18px', marginTop: '5px', lineHeight: 2 }}>2- استخدام الاسمنت المقاوم للقاعدة.</p>
-        <p style={{ fontSize: '18px', marginTop: '5px', lineHeight: 2 }}>3- عزل القواعد بعازل مائي بيوت مات 4 ملم.</p>
-        <p style={{ fontSize: '18px', marginTop: '5px', lineHeight: 2 }}>4- المباني внутри.</p>
+        <p style={{ fontSize: '18px', marginTop: '5px', lineHeight: 2 }}>2- استخدام السمنت المقاوم للقواعد والميدات والرقاب وخزان المياه والبيارة.</p>
+        <p style={{ fontSize: '18px', marginTop: '5px', lineHeight: 2 }}>3- عزل القواعد والحمامات وخزان المياه والسطح بعازل مائي بيوت مات 4 ملم.</p>
+        <p style={{ fontSize: '18px', marginTop: '5px', lineHeight: 2 }}>4- المباني الداخلية بلوك أحمر، والخارجية بلوك أحمر معزول مقاس 20×40×20.</p>
         <h3 style={{ fontSize: '20px', fontWeight: 'bold', marginTop: '15px' }}>مرحلة التشطيب:</h3>
         <h4 style={{ fontSize: '19px', fontWeight: 'bold', marginTop: '12px' }}>أولاً: الأعمال المعمارية:</h4>
         <p style={{ fontSize: '18px', marginTop: '15px', lineHeight: 2 }}>1- الواجهة الرئيسية حسب ما تراه الشركة مواكب للتطور العمراني.</p>

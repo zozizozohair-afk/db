@@ -259,21 +259,31 @@ export default function NewContractPage() {
   };
 
   const handleAddClient = async () => {
-    if (!newClient.name) {
+    const name = newClient.name.trim();
+    const effectiveIdNumber = (newClient.id_number || searchIdNumber || '').trim();
+    const phone = newClient.phone.trim();
+
+    if (!name) {
       showToast('يرجى إدخال اسم العميل', 'error');
       return;
     }
     try {
+      const insertPayload = {
+        name,
+        id_number: effectiveIdNumber || null,
+        phone: phone || null
+      };
+
       const { data: newClientData, error } = await supabase
         .from('clients')
-        .insert([newClient])
+        .insert([insertPayload])
         .select()
         .single();
       
       if (error) throw error;
 
       if (newClientData) {
-        setClients([...clients, newClientData]);
+        setClients((prev) => [newClientData, ...prev]);
         setSelectedClientId(newClientData.id);
         setContractData({
           ...contractData,
@@ -702,7 +712,7 @@ export default function NewContractPage() {
                     <div className="flex gap-4">
                       <button
                         onClick={() => {
-                          setNewClient({ ...newClient, id_number: searchIdNumber });
+                          setNewClient((prev) => ({ ...prev, id_number: searchIdNumber }));
                           handleAddClient();
                         }}
                         className="px-8 py-3 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:shadow-lg hover:-translate-y-0.5 transition-all font-bold"

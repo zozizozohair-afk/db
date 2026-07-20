@@ -2,9 +2,9 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Plus, Trash2, Printer, Pencil, Wallet, CalendarDays, ScrollText, Layers3, Repeat2, FileSignature, FileStack, Archive, Eye, Search } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Printer, Pencil, Wallet, CalendarDays, ScrollText, Layers3, Repeat2, FileSignature, FileStack, Archive, Eye, Search, Upload, FileImage, FileText, Loader2 } from 'lucide-react';
 import * as supabaseClient from '../../lib/supabaseClient';
-import { FullContract, Project, Unit, Client, ContractObligation, ContractPayment, CONTRACT_STATUSES, CONTRACT_TYPES, PAYMENT_METHODS } from '../../types';
+import { FullContract, Project, Unit, Client, ContractObligation, ContractPayment, CONTRACT_STATUSES, CONTRACT_TYPES, PAYMENT_METHODS, ContractAttachment, ContractAttachmentCategory } from '../../types';
 import ContractPrintPage from '../../components/printcontrect';
 import ResalePrintPage from '../../components/printeaadtbia';
 import SettlementPrintPage from '../../components/printtasoiah';
@@ -13,6 +13,18 @@ import ReceiptPrintPage from '../../components/printestlam';
 
 type EmployeeRole = 'admin' | 'manager' | 'marketing' | 'customer_service' | 'staff' | 'viewer';
 type ContractTypeKey = keyof typeof CONTRACT_TYPES;
+
+const CONTRACT_ATTACHMENT_LABELS: Record<ContractAttachmentCategory, string> = {
+  receipt: 'إيصالات',
+  identity: 'هوية',
+  unit_plan: 'مخطط شقة',
+};
+
+const CONTRACT_ATTACHMENT_DESCRIPTIONS: Record<ContractAttachmentCategory, string> = {
+  receipt: 'أي إيصالات سداد أو تحويل مرتبطة بالعقد.',
+  identity: 'صور الهوية أو النسخ الرسمية الخاصة بالعميل.',
+  unit_plan: 'مخطط الشقة أو أي ملفات توضيحية للوحدة.',
+};
 
 export default function ContractsPage() {
   const [contracts, setContracts] = useState<FullContract[]>([]);
@@ -25,6 +37,10 @@ export default function ContractsPage() {
   const [contractsSearchQuery, setContractsSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [selectedContract, setSelectedContract] = useState<FullContract | null>(null);
+  const [loadingAttachments, setLoadingAttachments] = useState(false);
+  const [uploadingAttachmentCategory, setUploadingAttachmentCategory] = useState<ContractAttachmentCategory | null>(null);
+  const [openingAttachmentId, setOpeningAttachmentId] = useState<string | null>(null);
+  const [deletingAttachmentId, setDeletingAttachmentId] = useState<string | null>(null);
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [showResalePrintModal, setShowResalePrintModal] = useState(false);
   const [resalePrintData, setResalePrintData] = useState<any>(null);
@@ -185,6 +201,184 @@ export default function ContractsPage() {
     }
   };
 
+  const getAttachmentFileType = (file: File): 'pdf' | 'image' | null => {
+    const mime = String(file.type || '').toLowerCase();
+    if (mime === 'application/pdf') return 'pdf';
+    if (mime.startsWith('image/')) return 'image';
+    const name = String(file.name || '').toLowerCase();
+    if (name.endsWith('.pdf')) return 'pdf';
+    if (/\.(png|jpe?g|webp|gif|bmp)$/i.test(name)) return 'image';
+    return null;
+  };
+
+  const buildAttachmentPath = (p: {
+    contractId: string;
+    category: ContractAttachmentCategory;
+    fileName: string;
+  }) => {
+    const ext = p.fileName.includes('.') ? p.fileName.split('.').pop() || 'bin' : 'bin';
+    const safeExt = ext.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'bin';
+    const random = Math.random().toString(36).slice(2, 8);
+    return `contracts/${p.contractId}/attachments/${p.category}/${Date.now()}-${random}.${safeExt}`;
+  };
+
+  const updateContractAttachmentsState = (contractId: string, attachments: ContractAttachment[]) => {
+    setSelectedContract((prev) => (prev && prev.id === contractId ? { ...prev, attachments } : prev));
+    setContracts((prev) => prev.map((contract) => (
+      contract.id === contractId ? { ...contract, attachments } : contract
+    )));
+  };
+
+  const loadContractAttachments = async (contractId: string) => {
+    setLoadingAttachments(true);
+    try {
+      const { data, error } = await supabaseClient.supabase
+        .from('contract_attachments')
+        .select('*')
+        .eq('contract_id', contractId)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        const msg = String(error.message || '').toLowerCase();
+        if (msg.includes('does not exist') || msg.includes('relation')) {
+          updateContractAttachmentsState(contractId, []);
+          return;
+        }
+        throw error;
+      }
+
+      updateContractAttachmentsState(contractId, ((data || []) as ContractAttachment[]));
+    } catch (error) {
+      console.error('Error loading contract attachments:', error);
+    } finally {
+      setLoadingAttachments(false);
+    }
+  };
+
+  const getContractAttachmentUrl = async (attachment: ContractAttachment) => {
+    if (attachment.file_path) {
+      const { data, error } = await supabaseClient.supabase
+        .storage
+        .from('project-files')
+        .createSignedUrl(attachment.file_path, 60 * 60);
+      if (!error && data?.signedUrl) return data.signedUrl;
+    }
+    return attachment.file_url;
+  };
+
+  const uploadContractAttachment = async (category: ContractAttachmentCategory, file: File) => {
+    if (!selectedContract) return;
+
+    const fileType = getAttachmentFileType(file);
+    if (!fileType) {
+      alert('المسموح فقط: ملفات PDF أو الصور.');
+      return;
+    }
+
+    setUploadingAttachmentCategory(category);
+    let uploadedFilePath: string | null = null;
+    try {
+      const filePath = buildAttachmentPath({
+        contractId: selectedContract.id,
+        category,
+        fileName: file.name,
+      });
+
+      const { error: uploadError } = await supabaseClient.supabase
+        .storage
+        .from('project-files')
+        .upload(filePath, file, { upsert: false });
+      if (uploadError) throw uploadError;
+      uploadedFilePath = filePath;
+
+      const publicUrl = supabaseClient.supabase
+        .storage
+        .from('project-files')
+        .getPublicUrl(filePath).data.publicUrl;
+
+      const payload = {
+        contract_id: selectedContract.id,
+        category,
+        file_name: file.name,
+        file_type: fileType,
+        mime_type: file.type || null,
+        file_url: publicUrl,
+        file_path: filePath,
+      };
+
+      const { data, error } = await supabaseClient.supabase
+        .from('contract_attachments')
+        .insert([payload])
+        .select('*')
+        .single();
+      if (error) throw error;
+
+      const nextAttachments = [...(selectedContract.attachments || []), data as ContractAttachment];
+      updateContractAttachmentsState(selectedContract.id, nextAttachments);
+      await logContractEvent({
+        contract_id: selectedContract.id,
+        action: 'contract_updated',
+        entity_type: 'contract_attachment',
+        entity_id: (data as ContractAttachment).id,
+        metadata: {
+          contract_type: selectedContract.type,
+          attachment_category: category,
+          attachment_category_label: CONTRACT_ATTACHMENT_LABELS[category],
+          attachment_file_name: file.name,
+          attachment_file_type: fileType,
+        }
+      });
+    } catch (error: any) {
+      if (uploadedFilePath) {
+        await supabaseClient.supabase.storage.from('project-files').remove([uploadedFilePath]);
+      }
+      console.error('Error uploading contract attachment:', error);
+      alert(error?.message || 'تعذر رفع المرفق');
+    } finally {
+      setUploadingAttachmentCategory(null);
+    }
+  };
+
+  const openContractAttachment = async (attachment: ContractAttachment) => {
+    setOpeningAttachmentId(attachment.id);
+    try {
+      const url = await getContractAttachmentUrl(attachment);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      console.error('Error opening contract attachment:', error);
+      alert('تعذر فتح الملف');
+    } finally {
+      setOpeningAttachmentId(null);
+    }
+  };
+
+  const deleteContractAttachment = async (attachment: ContractAttachment) => {
+    if (!selectedContract) return;
+    const ok = window.confirm(`هل تريد حذف المرفق "${attachment.file_name}"؟`);
+    if (!ok) return;
+
+    setDeletingAttachmentId(attachment.id);
+    try {
+      if (attachment.file_path) {
+        await supabaseClient.supabase.storage.from('project-files').remove([attachment.file_path]);
+      }
+
+      const { error } = await supabaseClient.supabase
+        .from('contract_attachments')
+        .delete()
+        .eq('id', attachment.id);
+      if (error) throw error;
+
+      const nextAttachments = (selectedContract.attachments || []).filter((item) => item.id !== attachment.id);
+      updateContractAttachmentsState(selectedContract.id, nextAttachments);
+    } catch (error: any) {
+      console.error('Error deleting contract attachment:', error);
+      alert(error?.message || 'تعذر حذف المرفق');
+    } finally {
+      setDeletingAttachmentId(null);
+    }
+  };
+
   const mapContractToPrintData = (contract: FullContract) => {
     // تحويل التاريخ الميلادي إلى هجري بسيط (يمكن تحسينه لاحقاً)
     const getHijriDate = (dateStr: string) => {
@@ -237,6 +431,7 @@ export default function ContractsPage() {
         amount: p.amount,
         description: p.statement || p.notes || ''
       })),
+      attachments: contract.attachments || [],
       agent
     };
   };
@@ -1375,6 +1570,11 @@ export default function ContractsPage() {
       }));
     }
   }, [selectedContract]);
+
+  useEffect(() => {
+    if (!selectedContract?.id) return;
+    loadContractAttachments(selectedContract.id);
+  }, [selectedContract?.id]);
 
   const contractTypeCards = useMemo(() => ([
     {
@@ -3269,6 +3469,111 @@ export default function ContractsPage() {
                   </div>
                 )}
 
+                {selectedContract.type === 'under_construction' && (
+                  <div className="pt-6 border-t border-gray-100 space-y-5">
+                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                          <div className="w-1.5 h-8 bg-indigo-600 rounded-full"></div>
+                          مرفقات العقد
+                        </h3>
+                        <p className="mt-1 text-sm text-gray-500">
+                          هذه الملفات ستُضاف في نهاية ملف `PDF` عند الضغط على تحميل العقد، ولن تغيّر طباعة المتصفح الحالية.
+                        </p>
+                      </div>
+                      {loadingAttachments && (
+                        <div className="inline-flex items-center gap-2 text-sm font-semibold text-gray-500">
+                          <Loader2 size={16} className="animate-spin" />
+                          جاري تحميل المرفقات...
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+                      {(Object.keys(CONTRACT_ATTACHMENT_LABELS) as ContractAttachmentCategory[]).map((category) => {
+                        const items = (selectedContract.attachments || []).filter((attachment) => attachment.category === category);
+                        const isUploading = uploadingAttachmentCategory === category;
+                        return (
+                          <div key={category} className="rounded-2xl border border-gray-200 bg-gray-50/70 p-5 space-y-4">
+                            <div>
+                              <div className="text-base font-extrabold text-gray-900">{CONTRACT_ATTACHMENT_LABELS[category]}</div>
+                              <div className="mt-1 text-sm text-gray-500">{CONTRACT_ATTACHMENT_DESCRIPTIONS[category]}</div>
+                            </div>
+
+                            <label className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed transition-colors ${
+                              isUploading ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-gray-300 bg-white text-gray-700 hover:border-indigo-400 hover:text-indigo-700'
+                            } cursor-pointer`}>
+                              {isUploading ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
+                              <span className="font-bold">{isUploading ? 'جارٍ الرفع...' : `رفع ${CONTRACT_ATTACHMENT_LABELS[category]}`}</span>
+                              <input
+                                type="file"
+                                accept=".pdf,image/*"
+                                className="hidden"
+                                disabled={isUploading}
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  e.currentTarget.value = '';
+                                  if (file) uploadContractAttachment(category, file);
+                                }}
+                              />
+                            </label>
+
+                            {items.length === 0 ? (
+                              <div className="rounded-xl border border-gray-200 bg-white px-4 py-5 text-sm font-semibold text-gray-500 text-center">
+                                لا توجد ملفات مرفوعة في هذا القسم.
+                              </div>
+                            ) : (
+                              <div className="space-y-3">
+                                {items.map((attachment) => (
+                                  <div key={attachment.id} className="rounded-xl border border-gray-200 bg-white p-4">
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="min-w-0">
+                                        <div className="flex items-center gap-2">
+                                          {attachment.file_type === 'pdf' ? (
+                                            <FileText size={16} className="text-red-600" />
+                                          ) : (
+                                            <FileImage size={16} className="text-sky-600" />
+                                          )}
+                                          <div className="truncate font-bold text-gray-900">{attachment.file_name}</div>
+                                        </div>
+                                        <div className="mt-1 text-xs text-gray-500">
+                                          {attachment.file_type === 'pdf' ? 'ملف PDF' : 'صورة'} • {new Date(attachment.created_at).toLocaleString('ar-SA')}
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => openContractAttachment(attachment)}
+                                          disabled={openingAttachmentId === attachment.id}
+                                          className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors text-sm font-bold disabled:opacity-60"
+                                        >
+                                          {openingAttachmentId === attachment.id ? <Loader2 size={14} className="animate-spin" /> : <Eye size={14} />}
+                                          فتح
+                                        </button>
+                                        {isAdmin && (
+                                          <button
+                                            type="button"
+                                            onClick={() => deleteContractAttachment(attachment)}
+                                            disabled={deletingAttachmentId === attachment.id}
+                                            className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 transition-colors text-sm font-bold disabled:opacity-60"
+                                          >
+                                            {deletingAttachmentId === attachment.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                                            حذف
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
                   <div className="bg-gradient-to-br from-blue-500 to-blue-600 p-6 rounded-2xl text-white shadow-lg">
                     <label className="text-sm font-semibold opacity-90 block mb-2">قيمة العقد الكلية</label>
@@ -4461,7 +4766,7 @@ export default function ContractsPage() {
         <div className="fixed inset-0 z-[9999] bg-white overflow-y-auto contract-print-modal" style={{ top: 0, left: 0, right: 0, bottom: 0 }}>
           <ContractPrintPage 
             data={mapContractToPrintData(selectedContract)} 
-            autoPrint={true}
+            autoPrint={false}
             onClose={() => {
               console.log('🔒 Closing print modal');
               setShowPrintModal(false);

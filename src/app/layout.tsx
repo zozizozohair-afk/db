@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Cairo } from "next/font/google";
 import localFont from "next/font/local";
 import "./globals.css";
 import LayoutContent from "../components/LayoutContent";
@@ -16,6 +17,13 @@ const arabicUI = localFont({
   weight: "900",
 });
 
+const cairo = Cairo({
+  subsets: ["arabic", "latin"],
+  variable: "--font-cairo",
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: "نظام مساكن لإدارة الصكوك والمشاريع",
   description: "نظام شامل لإدارة الوحدات والمشاريع العقارية",
@@ -29,7 +37,7 @@ export default function RootLayout({
   return (
     <html lang="ar" dir="rtl" suppressHydrationWarning>
       <body
-        className={`${agcRegular.variable} ${arabicUI.variable} antialiased bg-[#f9f8f4] font-sans`}
+        className={`${agcRegular.variable} ${arabicUI.variable} ${cairo.variable} antialiased bg-[#f9f8f4] font-sans`}
       >
         <LayoutContent>
           {children}

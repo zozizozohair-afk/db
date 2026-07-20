@@ -4,9 +4,11 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../../../lib/supabaseClient';
 import { Unit, Project, ProjectDocument, UnitModel, DOCUMENT_TYPES, UnitContract, CONTRACT_TYPES } from '../../../types';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { PDFDocument } from 'pdf-lib';
 import { 
   ArrowRight, 
+  ArrowLeft,
   Building2, 
   MapPin, 
   FileText, 
@@ -36,22 +38,37 @@ import {
   Files,
   Share2,
   Edit2,
-  Save
+  Save,
+  Loader2
 } from 'lucide-react';
 
 interface MergeableFile {
   id: string;
   name: string;
   url: string;
-  type: 'deed' | 'sorting' | 'contract' | 'project_doc' | 'unit_model';
+  type: 'deed' | 'sorting' | 'electricity_release' | 'contract' | 'project_doc' | 'unit_model';
   selected: boolean;
 }
 
+interface ProjectUnitNavItem {
+  id: string;
+  unit_number: number;
+  floor_number: number;
+  floor_label: string;
+  direction_label: string;
+  status: Unit['status'];
+  type: Unit['type'];
+}
+
+type UnitFileField = 'deed_file_url' | 'sorting_record_file_url' | 'electricity_release_file_url';
+
 export default function UnitDetailsPage({ params }: { params: { id: string } }) {
   const { id } = params;
+  const router = useRouter();
   
   const [unit, setUnit] = useState<Unit | null>(null);
   const [project, setProject] = useState<Project | null>(null);
+  const [projectUnits, setProjectUnits] = useState<ProjectUnitNavItem[]>([]);
   const [projectDocuments, setProjectDocuments] = useState<ProjectDocument[]>([]);
   const [unitModel, setUnitModel] = useState<UnitModel | null>(null);
   const [contracts, setContracts] = useState<UnitContract[]>([]);
@@ -80,6 +97,9 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [mergeableFiles, setMergeableFiles] = useState<MergeableFile[]>([]);
   const [isMerging, setIsMerging] = useState(false);
+  const [isDownloadingSeparate, setIsDownloadingSeparate] = useState(false);
+  const [uploadingUnitFileField, setUploadingUnitFileField] = useState<UnitFileField | null>(null);
+  const [movingContractId, setMovingContractId] = useState<string | null>(null);
 
   // Edit Unit State
   const [showEditModal, setShowEditModal] = useState(false);
@@ -103,64 +123,91 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
         // Initialize edit data
         setEditData(unitData);
 
-        // Fetch Project
         if (unitData.project_id) {
-          const { data: projectData, error: projectError } = await supabase
+          const siblingUnitsPromise = supabase
+            .from('units')
+            .select('id, unit_number, floor_number, floor_label, direction_label, status, type')
+            .eq('project_id', unitData.project_id)
+            .order('unit_number', { ascending: true });
+
+          const projectPromise = supabase
             .from('projects')
             .select('*')
             .eq('id', unitData.project_id)
             .single();
-            
-          if (!projectError) {
-            setProject(projectData);
 
-            // Fetch Project Documents
-            const { data: docsData, error: docsError } = await supabase
-              .from('project_documents')
-              .select('*')
-              .eq('project_id', unitData.project_id);
-              
-            if (!docsError && docsData) {
-              const signedDocs = await Promise.all(
-                (docsData as any[]).map(async (d) => {
-                  const signedUrl = await trySignProjectFileUrl(String((d as any)?.file_path || ''), String((d as any)?.file_url || ''));
-                  return { ...(d as any), file_url: signedUrl || (d as any)?.file_url } as any;
-                })
-              );
-              setProjectDocuments(signedDocs as any);
-            }
+          const docsPromise = supabase
+            .from('project_documents')
+            .select('*')
+            .eq('project_id', unitData.project_id);
 
-            // Fetch Unit Model (based on direction_label)
-            if (unitData.direction_label) {
-              const { data: modelData, error: modelError } = await supabase
+          const contractsPromise = supabase
+            .from('unit_contracts')
+            .select('*')
+            .eq('unit_id', id)
+            .order('created_at', { ascending: false });
+
+          const unitModelPromise = unitData.direction_label
+            ? supabase
                 .from('unit_models')
                 .select('*')
                 .eq('project_id', unitData.project_id)
                 .eq('name', unitData.direction_label)
-                .maybeSingle();
-                
-              if (!modelError && modelData) {
-                setUnitModel(modelData);
-              }
-            }
+                .maybeSingle()
+            : Promise.resolve({ data: null, error: null } as const);
 
-            // Fetch Contracts
-            const { data: contractsData, error: contractsError } = await supabase
-              .from('unit_contracts')
-              .select('*')
-              .eq('unit_id', id)
-              .order('created_at', { ascending: false });
+          const [
+            { data: siblingUnits, error: siblingUnitsError },
+            { data: projectData, error: projectError },
+            { data: docsData, error: docsError },
+            { data: contractsData, error: contractsError },
+            { data: modelData, error: modelError },
+          ] = await Promise.all([
+            siblingUnitsPromise,
+            projectPromise,
+            docsPromise,
+            contractsPromise,
+            unitModelPromise,
+          ]);
 
-            if (!contractsError && contractsData) {
-              const signedContracts = await Promise.all(
-                (contractsData as any[]).map(async (c) => {
-                  const signedUrl = await trySignProjectFileUrl(String((c as any)?.file_path || ''), String((c as any)?.file_url || ''));
-                  return { ...(c as any), file_url: signedUrl || (c as any)?.file_url } as any;
-                })
-              );
-              setContracts(signedContracts as any);
-            }
+          if (!siblingUnitsError && siblingUnits) {
+            setProjectUnits(siblingUnits as ProjectUnitNavItem[]);
+          } else {
+            setProjectUnits([]);
           }
+
+          setProject(projectError ? null : (projectData as Project | null));
+          setUnitModel(!modelError && modelData ? (modelData as UnitModel) : null);
+
+          if (!docsError && docsData) {
+            const signedDocs = await Promise.all(
+              (docsData as any[]).map(async (d) => {
+                const signedUrl = await trySignProjectFileUrl(String((d as any)?.file_path || ''), String((d as any)?.file_url || ''));
+                return { ...(d as any), file_url: signedUrl || (d as any)?.file_url } as any;
+              })
+            );
+            setProjectDocuments(signedDocs as any);
+          } else {
+            setProjectDocuments([]);
+          }
+
+          if (!contractsError && contractsData) {
+            const signedContracts = await Promise.all(
+              (contractsData as any[]).map(async (c) => {
+                const signedUrl = await trySignProjectFileUrl(String((c as any)?.file_path || ''), String((c as any)?.file_url || ''));
+                return { ...(c as any), file_url: signedUrl || (c as any)?.file_url } as any;
+              })
+            );
+            setContracts(signedContracts as any);
+          } else {
+            setContracts([]);
+          }
+        } else {
+          setProjectUnits([]);
+          setProject(null);
+          setProjectDocuments([]);
+          setUnitModel(null);
+          setContracts([]);
         }
 
       } catch (error) {
@@ -238,6 +285,44 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       setContractFile(e.target.files[0]);
+    }
+  };
+
+  const handleUploadUnitFile = async (field: UnitFileField, file: File) => {
+    if (!unit) return;
+
+    const prefixMap: Record<UnitFileField, string> = {
+      deed_file_url: 'deeds',
+      sorting_record_file_url: 'sorting_records',
+      electricity_release_file_url: 'electricity_release',
+    };
+
+    try {
+      setUploadingUnitFileField(field);
+      const fileExt = file.name.split('.').pop() || 'pdf';
+      const fileName = `${prefixMap[field]}/${unit.project_id}/${unit.id}_${Date.now()}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('project-files')
+        .upload(fileName, file, { upsert: true });
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('project-files')
+        .getPublicUrl(fileName);
+
+      const { error: updateError } = await supabase
+        .from('units')
+        .update({ [field]: publicUrl })
+        .eq('id', unit.id);
+      if (updateError) throw updateError;
+
+      setUnit((prev) => prev ? { ...prev, [field]: publicUrl } : prev);
+    } catch (error) {
+      console.error('Error uploading unit file:', error);
+      alert('حدث خطأ أثناء رفع الملف');
+    } finally {
+      setUploadingUnitFileField(null);
     }
   };
 
@@ -328,6 +413,47 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
     }
   };
 
+  const handleConvertOtherContractToElectricityRelease = async (contract: UnitContract) => {
+    if (!unit) return;
+
+    if (contract.type !== 'other') return;
+
+    const hasExistingCertificate = Boolean(unit.electricity_release_file_url);
+    const confirmMessage = hasExistingCertificate
+      ? 'يوجد حالياً ملف مسجل كشهادة إطلاق تيار. هل تريد استبداله بهذا الملف ونقله من العقود؟'
+      : 'هل تريد تحويل هذا الملف من العقود إلى شهادة إطلاق تيار؟';
+
+    if (!confirm(confirmMessage)) return;
+
+    try {
+      setMovingContractId(contract.id);
+
+      const publicUrl = contract.file_path
+        ? supabase.storage.from('project-files').getPublicUrl(contract.file_path).data.publicUrl
+        : contract.file_url;
+
+      const { error: updateUnitError } = await supabase
+        .from('units')
+        .update({ electricity_release_file_url: publicUrl })
+        .eq('id', unit.id);
+      if (updateUnitError) throw updateUnitError;
+
+      const { error: deleteContractError } = await supabase
+        .from('unit_contracts')
+        .delete()
+        .eq('id', contract.id);
+      if (deleteContractError) throw deleteContractError;
+
+      setUnit((prev) => prev ? { ...prev, electricity_release_file_url: publicUrl } : prev);
+      setContracts((prev) => prev.filter((item) => item.id !== contract.id));
+    } catch (error) {
+      console.error('Error converting contract to electricity release certificate:', error);
+      alert('حدث خطأ أثناء تحويل الملف إلى شهادة إطلاق تيار');
+    } finally {
+      setMovingContractId(null);
+    }
+  };
+
   const handlePrepareMerge = () => {
     const files: MergeableFile[] = [];
 
@@ -353,7 +479,18 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
       });
     }
 
-    // 3. Add Contracts
+    // 3. Add Electricity Release Certificate
+    if (unit?.electricity_release_file_url) {
+      files.push({
+        id: 'electricity_release',
+        name: 'شهادة إطلاق تيار',
+        url: unit.electricity_release_file_url,
+        type: 'electricity_release',
+        selected: true
+      });
+    }
+
+    // 4. Add Contracts
     contracts.forEach(contract => {
       files.push({
         id: contract.id,
@@ -364,7 +501,7 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
       });
     });
 
-    // 4. Add Project Documents
+    // 5. Add Project Documents
     projectDocuments.forEach(doc => {
       files.push({
         id: doc.id,
@@ -455,6 +592,70 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
     }
   };
 
+  const handleDownloadSelectedSeparately = async () => {
+    const selectedFiles = mergeableFiles.filter(f => f.selected);
+    if (selectedFiles.length === 0) {
+      alert('الرجاء اختيار ملف واحد على الأقل');
+      return;
+    }
+
+    const buildDownloadName = (file: MergeableFile, index: number, contentType?: string) => {
+      const cleanBaseName = file.name.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_').trim() || `file-${index + 1}`;
+      const urlWithoutQuery = file.url.split('?')[0];
+      const urlFileName = urlWithoutQuery.split('/').pop() || '';
+      const urlExt = urlFileName.includes('.') ? `.${urlFileName.split('.').pop()}` : '';
+      const typeMap: Record<string, string> = {
+        'application/pdf': '.pdf',
+        'image/jpeg': '.jpg',
+        'image/png': '.png',
+        'image/webp': '.webp',
+        'application/msword': '.doc',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+      };
+      const typeExt = contentType ? (typeMap[contentType] || '') : '';
+      const finalExt = urlExt || typeExt;
+      const suffixParts = [
+        project?.project_number ? `مشروع ${project.project_number}` : null,
+        unit?.unit_number ? `وحدة ${unit.unit_number}` : null,
+      ].filter(Boolean);
+      const baseWithSuffix = suffixParts.length > 0 ? `${cleanBaseName} - ${suffixParts.join(' - ')}` : cleanBaseName;
+      return baseWithSuffix.endsWith(finalExt) || !finalExt ? baseWithSuffix : `${baseWithSuffix}${finalExt}`;
+    };
+
+    try {
+      setIsDownloadingSeparate(true);
+
+      for (let i = 0; i < selectedFiles.length; i += 1) {
+        const file = selectedFiles[i];
+        try {
+          const response = await fetch(file.url);
+          if (!response.ok) {
+            throw new Error(`فشل تحميل الملف ${file.name}`);
+          }
+
+          const blob = await response.blob();
+          const blobUrl = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = blobUrl;
+          link.download = buildDownloadName(file, i, blob.type);
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(blobUrl);
+        } catch (error) {
+          console.error(`Error downloading file ${file.name}:`, error);
+        }
+      }
+
+      setShowMergeModal(false);
+    } catch (error) {
+      console.error('Error downloading selected files separately:', error);
+      alert('حدث خطأ أثناء تحميل الملفات');
+    } finally {
+      setIsDownloadingSeparate(false);
+    }
+  };
+
   const handleSaveEdit = async () => {
     try {
       setIsSavingEdit(true);
@@ -477,6 +678,21 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
       setIsSavingEdit(false);
     }
   };
+
+  const currentUnitIndex = projectUnits.findIndex((projectUnit) => projectUnit.id === unit?.id);
+  const previousUnit = currentUnitIndex > 0 ? projectUnits[currentUnitIndex - 1] : null;
+  const nextUnit = currentUnitIndex >= 0 && currentUnitIndex < projectUnits.length - 1
+    ? projectUnits[currentUnitIndex + 1]
+    : null;
+
+  useEffect(() => {
+    if (previousUnit?.id) {
+      router.prefetch(`/units/${previousUnit.id}`);
+    }
+    if (nextUnit?.id) {
+      router.prefetch(`/units/${nextUnit.id}`);
+    }
+  }, [nextUnit?.id, previousUnit?.id, router]);
 
   if (loading) {
     return (
@@ -503,7 +719,7 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
     <div className="min-h-screen bg-gray-50 pb-12" dir="rtl">
       {/* Top Navigation Bar */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10 shadow-sm">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-4">
             <Link 
               href={project ? `/projects/${project.id}` : '/'} 
@@ -520,26 +736,68 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
               )}
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <button 
-              onClick={() => window.print()}
-              className="p-2 text-gray-600 hover:bg-gray-100 rounded-md transition-colors hidden sm:flex"
-              title="طباعة"
-            >
-              <Printer size={20} />
-            </button>
-            <button 
-              onClick={() => {
-                if (unit) setEditData(unit);
-                setShowEditModal(true);
-              }}
-              className="p-2 text-blue-600 hover:bg-blue-100 rounded-md transition-colors flex items-center gap-2"
-              title="تعديل الوحدة"
-            >
-              <Edit2 size={20} />
-              <span className="hidden sm:inline text-sm font-medium">تعديل</span>
-            </button>
-            {getStatusBadge(unit.status)}
+
+          <div className="flex flex-col items-stretch gap-3 lg:items-end">
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => window.print()}
+                className="p-2 text-gray-600 hover:bg-gray-100 rounded-md transition-colors hidden sm:flex"
+                title="طباعة"
+              >
+                <Printer size={20} />
+              </button>
+              <button 
+                onClick={() => {
+                  if (unit) setEditData(unit);
+                  setShowEditModal(true);
+                }}
+                className="p-2 text-blue-600 hover:bg-blue-100 rounded-md transition-colors flex items-center gap-2"
+                title="تعديل الوحدة"
+              >
+                <Edit2 size={20} />
+                <span className="hidden sm:inline text-sm font-medium">تعديل</span>
+              </button>
+              {getStatusBadge(unit.status)}
+            </div>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="text-xs text-gray-500 font-medium">
+                {projectUnits.length > 0 ? `التنقل داخل وحدات المشروع (${currentUnitIndex + 1} من ${projectUnits.length})` : 'لا توجد وحدات أخرى ضمن هذا المشروع'}
+              </div>
+              <div className="flex items-center gap-2">
+                {previousUnit ? (
+                  <Link
+                    href={`/units/${previousUnit.id}`}
+                    className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+                    title={`الانتقال إلى الوحدة ${previousUnit.unit_number}`}
+                  >
+                    <ArrowRight size={16} />
+                    السابقة: {previousUnit.unit_number}
+                  </Link>
+                ) : (
+                  <span className="inline-flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-400 cursor-not-allowed">
+                    <ArrowRight size={16} />
+                    لا توجد سابقة
+                  </span>
+                )}
+
+                {nextUnit ? (
+                  <Link
+                    href={`/units/${nextUnit.id}`}
+                    className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+                    title={`الانتقال إلى الوحدة ${nextUnit.unit_number}`}
+                  >
+                    التالية: {nextUnit.unit_number}
+                    <ArrowLeft size={16} />
+                  </Link>
+                ) : (
+                  <span className="inline-flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-400 cursor-not-allowed">
+                    لا توجد تالية
+                    <ArrowLeft size={16} />
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </header>
@@ -681,16 +939,25 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
             <FileText size={24} className="text-blue-600" />
             الملفات والمستندات
           </h3>
-          <button
-            onClick={handlePrepareMerge}
-            className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
-          >
-            <Files size={16} />
-            دمج وإرسال
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handlePrepareMerge}
+              className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+            >
+              <Files size={16} />
+              دمج وإرسال
+            </button>
+            <button
+              onClick={handlePrepareMerge}
+              className="flex items-center gap-2 bg-white text-indigo-700 border border-indigo-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-50 transition-colors"
+            >
+              <Download size={16} />
+              تحميل منفصل
+            </button>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           
           {/* Deed File Card */}
           <div className={`rounded-xl border p-6 transition-all duration-200 group ${unit.deed_file_url ? 'bg-white border-blue-100 hover:shadow-md hover:border-blue-300' : 'bg-gray-50 border-gray-200 border-dashed'}`}>
@@ -785,6 +1052,93 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
               </div>
             )}
           </div>
+
+          {/* Electricity Release Certificate Card */}
+          <div className={`rounded-xl border p-6 transition-all duration-200 group ${unit.electricity_release_file_url ? 'bg-white border-amber-100 hover:shadow-md hover:border-amber-300' : 'bg-gray-50 border-gray-200 border-dashed'}`}>
+            <div className="flex items-start justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className={`p-3 rounded-lg ${unit.electricity_release_file_url ? 'bg-amber-100 text-amber-600' : 'bg-gray-200 text-gray-400'}`}>
+                  <Zap size={24} />
+                </div>
+                <div>
+                  <h4 className="font-bold text-gray-900">شهادة إطلاق تيار</h4>
+                  <p className="text-sm text-gray-500">ملف إطلاق التيار أو الشهادة المرتبطة به</p>
+                </div>
+              </div>
+              {unit.electricity_release_file_url && (
+                <span className="bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full flex items-center gap-1">
+                  <CheckCircle2 size={12} />
+                  متوفر
+                </span>
+              )}
+            </div>
+            
+            {unit.electricity_release_file_url ? (
+              <div className="flex flex-wrap gap-3 mt-4">
+                <a 
+                  href={unit.electricity_release_file_url} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="flex-1 bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-amber-700 transition-colors flex items-center justify-center gap-2"
+                >
+                  <ExternalLink size={16} />
+                  عرض الملف
+                </a>
+                <a 
+                  href={`${unit.electricity_release_file_url}?download=true`} 
+                  download
+                  className="bg-amber-50 text-amber-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-amber-100 transition-colors flex items-center justify-center"
+                  title="تحميل"
+                >
+                  <Download size={16} />
+                </a>
+                <label className="bg-white text-amber-700 border border-amber-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-amber-50 transition-colors flex items-center justify-center gap-2 cursor-pointer">
+                  {uploadingUnitFileField === 'electricity_release_file_url' ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <Upload size={16} />
+                  )}
+                  {uploadingUnitFileField === 'electricity_release_file_url' ? 'جاري الرفع...' : 'استبدال الملف'}
+                  <input
+                    type="file"
+                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp"
+                    className="hidden"
+                    disabled={uploadingUnitFileField === 'electricity_release_file_url'}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      e.currentTarget.value = '';
+                      if (file) handleUploadUnitFile('electricity_release_file_url', file);
+                    }}
+                  />
+                </label>
+              </div>
+            ) : (
+              <div className="mt-4 space-y-3">
+                <div className="text-center text-gray-400 text-sm py-2">
+                  لا يوجد ملف مرفق
+                </div>
+                <label className="w-full bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-amber-700 transition-colors flex items-center justify-center gap-2 cursor-pointer">
+                  {uploadingUnitFileField === 'electricity_release_file_url' ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <Upload size={16} />
+                  )}
+                  {uploadingUnitFileField === 'electricity_release_file_url' ? 'جاري الرفع...' : 'رفع الملف'}
+                  <input
+                    type="file"
+                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp"
+                    className="hidden"
+                    disabled={uploadingUnitFileField === 'electricity_release_file_url'}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      e.currentTarget.value = '';
+                      if (file) handleUploadUnitFile('electricity_release_file_url', file);
+                    }}
+                  />
+                </label>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Contracts Section */}
@@ -852,6 +1206,22 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
                     <Download size={16} />
                   </a>
                 </div>
+
+                {contract.type === 'other' && (
+                  <button
+                    type="button"
+                    onClick={() => handleConvertOtherContractToElectricityRelease(contract)}
+                    disabled={movingContractId === contract.id}
+                    className="w-full mt-3 bg-amber-50 text-amber-800 border border-amber-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-amber-100 transition-colors flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {movingContractId === contract.id ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <Zap size={16} />
+                    )}
+                    {movingContractId === contract.id ? 'جاري التحويل...' : 'تحويل إلى شهادة إطلاق تيار'}
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -1066,7 +1436,9 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
               </div>
               
               <div className="p-6 max-h-[60vh] overflow-y-auto">
-                <p className="text-sm text-gray-500 mb-4">حدد الملفات التي تريد دمجها في ملف PDF واحد:</p>
+                <p className="text-sm text-gray-500 mb-4">
+                  حدد الملفات التي تريد التعامل معها، ويمكنك بعدها إما دمجها في ملف واحد أو تحميلها بشكل منفصل.
+                </p>
                 
                 <div className="space-y-3">
                   {mergeableFiles.map((file) => (
@@ -1102,10 +1474,22 @@ export default function UnitDetailsPage({ params }: { params: { id: string } }) 
                 </div>
               </div>
 
-              <div className="p-6 border-t border-gray-100 bg-gray-50 flex gap-3">
+              <div className="p-6 border-t border-gray-100 bg-gray-50 flex flex-col sm:flex-row gap-3">
+                <button
+                  onClick={handleDownloadSelectedSeparately}
+                  disabled={isDownloadingSeparate || isMerging || mergeableFiles.filter(f => f.selected).length === 0}
+                  className="flex-1 bg-white text-indigo-700 border border-indigo-200 px-6 py-3 rounded-xl font-bold hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+                >
+                  {isDownloadingSeparate ? (
+                    <div className="w-5 h-5 border-2 border-indigo-200 border-t-indigo-700 rounded-full animate-spin"></div>
+                  ) : (
+                    <Download size={20} />
+                  )}
+                  {isDownloadingSeparate ? 'جاري التحميل...' : 'تحميل الملفات منفصلة'}
+                </button>
                 <button
                   onClick={handleMergeAndDownload}
-                  disabled={isMerging || mergeableFiles.filter(f => f.selected).length === 0}
+                  disabled={isMerging || isDownloadingSeparate || mergeableFiles.filter(f => f.selected).length === 0}
                   className="flex-1 bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
                 >
                   {isMerging ? (

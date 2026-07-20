@@ -5,7 +5,7 @@ export const runtime = 'edge';
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, usePathname, useRouter } from 'next/navigation';
-import { ArrowRight, Building2, CheckCircle2, ClipboardList, FileText, Loader2, Phone, Plus, RefreshCw, User, AlertCircle, Users, BarChart3 } from 'lucide-react';
+import { ArrowRight, Building2, CheckCircle2, ClipboardList, FileText, Loader2, Phone, Plus, RefreshCw, User, AlertCircle, Users, BarChart3, PencilLine } from 'lucide-react';
 import { supabase } from '../../../../lib/supabaseClient';
 import type { Client, CrmActivity, CrmActivityChannel, CrmClientStage, CrmPipelineStage, CrmTask, CrmTaskPriority, Project, Unit } from '../../../../types';
 
@@ -60,7 +60,15 @@ export default function CrmClientPage() {
   const [savingStage, setSavingStage] = useState(false);
   const [savingActivity, setSavingActivity] = useState(false);
   const [savingTask, setSavingTask] = useState(false);
+  const [savingClient, setSavingClient] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
+  const [isEditClientOpen, setIsEditClientOpen] = useState(false);
+  const [editClientForm, setEditClientForm] = useState({
+    name: '',
+    id_number: '',
+    phone: '',
+    notes: ''
+  });
 
   const [selectedStageId, setSelectedStageId] = useState<string>('');
   const [activityChannel, setActivityChannel] = useState<CrmActivityChannel>('note');
@@ -322,6 +330,50 @@ export default function CrmClientPage() {
     }
   };
 
+  const openEditClient = () => {
+    if (!client) return;
+    setEditClientForm({
+      name: client.name || '',
+      id_number: client.id_number || '',
+      phone: client.phone || '',
+      notes: client.notes || ''
+    });
+    setIsEditClientOpen(true);
+  };
+
+  const saveClient = async () => {
+    if (!client) return;
+    const name = editClientForm.name.trim();
+    if (!name) {
+      alert('اسم العميل مطلوب');
+      return;
+    }
+
+    setSavingClient(true);
+    try {
+      const payload = {
+        name,
+        id_number: editClientForm.id_number.trim() || null,
+        phone: editClientForm.phone.trim() || null,
+        notes: editClientForm.notes.trim() || null
+      };
+      const { data, error } = await supabase
+        .from('clients')
+        .update(payload)
+        .eq('id', client.id)
+        .select('*')
+        .single();
+      if (error) throw error;
+      setClient((data as Client) || null);
+      setIsEditClientOpen(false);
+      await fetchAll();
+    } catch (e: any) {
+      alert(e?.message || 'تعذر تحديث بيانات العميل');
+    } finally {
+      setSavingClient(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="p-8 min-h-screen flex items-center justify-center" dir="rtl">
@@ -367,13 +419,22 @@ export default function CrmClientPage() {
             </div>
           </div>
         </div>
-        <button
-          onClick={fetchAll}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-gray-200 hover:bg-gray-50 transition-colors"
-        >
-          <RefreshCw size={16} className="text-gray-600" />
-          تحديث
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={openEditClient}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+          >
+            <PencilLine size={16} />
+            تعديل البيانات
+          </button>
+          <button
+            onClick={fetchAll}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-gray-200 hover:bg-gray-50 transition-colors"
+          >
+            <RefreshCw size={16} className="text-gray-600" />
+            تحديث
+          </button>
+        </div>
       </div>
 
       <div className="bg-white/90 backdrop-blur rounded-2xl shadow-md border border-gray-200 p-2">
@@ -649,6 +710,10 @@ export default function CrmClientPage() {
               بيانات الاتصال
             </h2>
             <div className="space-y-2 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-gray-500">الاسم</span>
+                <span className="font-bold text-gray-900 text-left">{client.name}</span>
+              </div>
               <div className="flex items-center justify-between">
                 <span className="text-gray-500">الجوال</span>
                 <span dir="ltr" className="font-bold text-gray-900">
@@ -658,6 +723,10 @@ export default function CrmClientPage() {
               <div className="flex items-center justify-between">
                 <span className="text-gray-500">الهوية</span>
                 <span className="font-bold text-gray-900">{client.id_number || '-'}</span>
+              </div>
+              <div className="pt-2 border-t border-gray-100">
+                <div className="text-gray-500 mb-1">الملاحظات</div>
+                <div className="font-bold text-gray-900 whitespace-pre-wrap">{client.notes || '-'}</div>
               </div>
             </div>
           </div>
@@ -691,6 +760,88 @@ export default function CrmClientPage() {
           </div>
         </div>
       </div>
+
+      {isEditClientOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="font-bold text-xl text-gray-900">تعديل بيانات العميل</h2>
+              <button
+                type="button"
+                onClick={() => setIsEditClientOpen(false)}
+                className="w-10 h-10 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50"
+                aria-label="إغلاق"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">اسم العميل *</label>
+                <input
+                  type="text"
+                  value={editClientForm.name}
+                  onChange={(e) => setEditClientForm((prev) => ({ ...prev, name: e.target.value }))}
+                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"
+                  placeholder="أدخل اسم العميل"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">رقم الهوية</label>
+                <input
+                  type="text"
+                  value={editClientForm.id_number}
+                  onChange={(e) => setEditClientForm((prev) => ({ ...prev, id_number: e.target.value }))}
+                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"
+                  placeholder="اختياري"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">رقم الجوال</label>
+                <input
+                  type="text"
+                  value={editClientForm.phone}
+                  onChange={(e) => setEditClientForm((prev) => ({ ...prev, phone: e.target.value }))}
+                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"
+                  placeholder="اختياري"
+                  dir="ltr"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">ملاحظات</label>
+                <textarea
+                  value={editClientForm.notes}
+                  onChange={(e) => setEditClientForm((prev) => ({ ...prev, notes: e.target.value }))}
+                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none min-h-[110px]"
+                  placeholder="اختياري"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditClientOpen(false)}
+                  className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-colors"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  onClick={saveClient}
+                  disabled={savingClient || !editClientForm.name.trim()}
+                  className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                >
+                  {savingClient ? 'جاري الحفظ...' : 'حفظ التعديلات'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

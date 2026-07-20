@@ -97,7 +97,7 @@ export default function UnitsExcelView({ units: initialUnits, onUpdate, onCancel
 
   const handlePaste = (e: React.ClipboardEvent, startIndex: number, field: keyof Unit) => {
     // Check if files are being pasted
-    if ((field === 'deed_file_url' || field === 'sorting_record_file_url' || field === 'modifications_file_url') && e.clipboardData.files.length > 0) {
+    if ((field === 'deed_file_url' || field === 'sorting_record_file_url' || field === 'electricity_release_file_url' || field === 'modifications_file_url') && e.clipboardData.files.length > 0) {
         handleFilePaste(e, startIndex, field);
         return;
     }
@@ -168,6 +168,7 @@ export default function UnitsExcelView({ units: initialUnits, onUpdate, onCancel
             
             let prefix = 'deeds';
             if (field === 'sorting_record_file_url') prefix = 'sorting_records';
+            else if (field === 'electricity_release_file_url') prefix = 'electricity_release';
             else if (field === 'modifications_file_url') prefix = 'modifications';
             
             const fileName = `${prefix}/${unit.project_id}/${unit.id}_${Date.now()}.${fileExt}`;
@@ -246,6 +247,7 @@ export default function UnitsExcelView({ units: initialUnits, onUpdate, onCancel
             
             let prefix = 'deeds';
             if (field === 'sorting_record_file_url') prefix = 'sorting_records';
+            else if (field === 'electricity_release_file_url') prefix = 'electricity_release';
             else if (field === 'modifications_file_url') prefix = 'modifications';
             
             const fileName = `${prefix}/${unit.project_id}/${unit.id}_${Date.now()}.${fileExt}`;
@@ -310,6 +312,7 @@ export default function UnitsExcelView({ units: initialUnits, onUpdate, onCancel
         client_phone: u.client_phone,
         deed_file_url: u.deed_file_url,
         sorting_record_file_url: u.sorting_record_file_url,
+        electricity_release_file_url: u.electricity_release_file_url,
         modifications_file_url: u.modifications_file_url,
       }));
 
@@ -335,7 +338,7 @@ export default function UnitsExcelView({ units: initialUnits, onUpdate, onCancel
       <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
         <div className="flex flex-col">
             <h3 className="font-bold text-gray-900">تعديل البيانات (وضع الإكسل)</h3>
-            <p className="text-xs text-gray-500 mt-1">يمكنك نسخ ولصق النصوص، أو نسخ ملفات PDF ولصقها في عمود "ملف الصك"</p>
+            <p className="text-xs text-gray-500 mt-1">يمكنك نسخ ولصق النصوص، أو نسخ ملفات PDF ولصقها في أعمدة الملفات مثل الصك ومحضر الفرز وإطلاق التيار</p>
         </div>
         
         {selectedIds.size > 0 && (
@@ -424,6 +427,10 @@ export default function UnitsExcelView({ units: initialUnits, onUpdate, onCancel
                 className={`p-3 border-b border-gray-300 font-bold bg-blue-50 text-blue-900 cursor-pointer ${getColumnClass('sorting_record_file_url', 'w-32')}`}
                 onClick={() => handleColumnFocus('sorting_record_file_url')}
               >ملف محضر الفرز</th>
+              <th 
+                className={`p-3 border-b border-gray-300 font-bold bg-amber-50 text-amber-900 cursor-pointer ${getColumnClass('electricity_release_file_url', 'w-32')}`}
+                onClick={() => handleColumnFocus('electricity_release_file_url')}
+              >شهادة إطلاق تيار</th>
               <th 
                 className={`p-3 border-b border-gray-300 font-bold bg-orange-50 text-orange-900 cursor-pointer ${getColumnClass('modifications_file_url', 'w-32')}`}
                 onClick={() => handleColumnFocus('modifications_file_url')}
@@ -591,6 +598,52 @@ export default function UnitsExcelView({ units: initialUnits, onUpdate, onCancel
                             <div 
                                 className="text-gray-300 flex items-center justify-center w-full h-full"
                                 onClick={(e) => { e.stopPropagation(); triggerFileUpload(unit.id, 'sorting_record_file_url', 'file'); }}
+                                title="انقر لرفع ملف"
+                            >
+                                <Upload size={14} />
+                            </div>
+                        )}
+                    </div>
+                </td>
+
+                {/* File Upload Column: Modifications File */}
+                <td className="p-0 border-r border-gray-200 relative">
+                    <div 
+                        className={`w-full h-full min-h-[40px] flex items-center justify-center p-2 focus:bg-amber-100 outline-none cursor-pointer hover:bg-gray-50 ${!activeColumn ? '' : activeColumn === 'electricity_release_file_url' ? '' : 'opacity-50 scale-90'} transition-all duration-300`}
+                        tabIndex={0}
+                        onPaste={(e) => handlePaste(e, index, 'electricity_release_file_url')}
+                        onFocus={() => handleColumnFocus('electricity_release_file_url')}
+                        onClick={() => handleColumnFocus('electricity_release_file_url')}
+                    >
+                        {uploadingRows[`${unit.id}_electricity_release_file_url`] ? (
+                            <div className="flex items-center gap-1 text-amber-600 text-xs">
+                                <Loader2 size={14} className="animate-spin" />
+                                <span>جاري الرفع...</span>
+                            </div>
+                        ) : unit.electricity_release_file_url ? (
+                            <div className="flex items-center gap-2">
+                                <a 
+                                    href={unit.electricity_release_file_url} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="text-amber-600 hover:text-amber-800 flex items-center gap-1 text-xs font-medium"
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    <FileText size={14} />
+                                    <span>عرض الملف</span>
+                                </a>
+                                <button 
+                                    onClick={() => handleChange(unit.id, 'electricity_release_file_url', null)}
+                                    className="text-red-500 hover:text-red-700 p-1"
+                                    title="حذف الملف"
+                                >
+                                    <X size={12} />
+                                </button>
+                            </div>
+                        ) : (
+                            <div 
+                                className="text-gray-300 flex items-center justify-center w-full h-full"
+                                onClick={(e) => { e.stopPropagation(); triggerFileUpload(unit.id, 'electricity_release_file_url', 'file'); }}
                                 title="انقر لرفع ملف"
                             >
                                 <Upload size={14} />
